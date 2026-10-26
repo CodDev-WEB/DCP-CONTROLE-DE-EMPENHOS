@@ -50,3 +50,5 @@
 .month-filter{display:flex;align-items:center;gap:8px;font-size:10px;color:#718596;white-space:nowrap}
 .month-filter input{border:1px solid #dfe7ed;border-radius:8px;padding:7px 9px;color:#415a6f;font-size:10px;background:#fff}
 @media(max-width:600px){.history-tools{align-items:flex-end;flex-direction:column}.month-filter{width:100%;justify-content:space-between}.month-filter input{flex:1;max-width:170px}}
+
+.balance-value.negative{color:#b42318!important}
