@@ -83,3 +83,20 @@
 .danger-btn.compact{padding:7px 10px;font-size:12px}
 @media(max-width:900px){.empenho-panel-head,.empenho-item-card,.empenho-entry-card{flex-direction:column}.empenho-panel-actions,.item-values,.entry-actions{justify-content:flex-start}.empenho-metrics{grid-template-columns:repeat(2,minmax(0,1fr))}.entry-actions{min-width:0}}
 @media(max-width:520px){.empenho-panel-head,.empenho-subsection{padding:16px}.empenho-metrics>div{padding:12px}.empenho-metrics strong{font-size:14px}}
+
+.empenho-toolbar{display:flex;align-items:center;justify-content:space-between;gap:16px;margin:0 0 14px}
+.empenho-toolbar>div{display:flex;flex-direction:column;gap:4px;color:#23435f;font-size:13px}
+.empenho-toolbar>div span{font-size:12px;color:#72869a}
+.empenho-toolbar input{width:min(360px,100%);border:1px solid #d7e1eb;border-radius:10px;padding:11px 13px;background:#fff;color:#173750}
+.empenho-panel.collapsed .empenho-panel-head{padding:0;background:#fff;border:0}
+.empenho-panel.collapsed{border-radius:12px}
+.compact-panel-head{display:block;padding:0!important}
+.empenho-expand-toggle{display:flex;align-items:center;gap:14px;width:100%;padding:15px 18px;text-align:left;border:0;background:transparent;cursor:pointer;color:inherit}
+.empenho-expand-icon{display:grid;place-items:center;width:26px;height:26px;flex-shrink:0;border-radius:8px;background:#edf4f9;color:#234e70;font-size:20px}
+.empenho-title-group{display:flex;flex-direction:column;gap:4px;min-width:0;flex:1}
+.empenho-title-group strong{font-size:15px;color:#153650}
+.empenho-short-description{font-size:12px;color:#6c8195;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:650px}
+.empenho-summary-value{display:flex;flex-direction:column;gap:3px;align-items:flex-end;font-weight:700;color:#173e5c;white-space:nowrap}
+.empenho-summary-value small{font-size:10px;font-weight:400;color:#72869a}
+.empenho-expanded-actions{display:flex;gap:8px;flex-wrap:wrap;padding:0 18px 14px 58px}
+@media(max-width:700px){.empenho-toolbar{align-items:stretch;flex-direction:column}.empenho-toolbar input{width:100%}.empenho-expand-toggle{gap:9px;padding:13px}.empenho-summary-value{font-size:12px}.empenho-short-description{max-width:190px}.empenho-expanded-actions{padding-left:13px}}
