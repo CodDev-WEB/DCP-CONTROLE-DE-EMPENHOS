@@ -4,7 +4,6 @@ import {
   Clock3, FileText, LayoutDashboard, LogOut, Menu, Paperclip, Plus, RefreshCw,
   Search, ShieldCheck, Wallet, X, Upload
 } from 'lucide-react';
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { isSupabaseConfigured, supabase } from './lib/supabase.js';
 
 const money = (value) => new Intl.NumberFormat('pt-BR', {
