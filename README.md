@@ -21,18 +21,18 @@ Controlar empenhos vinculados a órgãos públicos, registrar solicitações e p
 3. Cadastro de empenhos por órgão.
 4. Lançamentos de solicitações e pagamentos, com anexos PDF/imagem.
 5. Histórico mensal e trilha de auditoria.
-6. Cálculo configurável de percentual e base de cálculo por empenho.
+6. Cadastro de pedido e pagamento em fluxos separados.
+7. Cálculo de acréscimo por pedido, com prévia do valor da nota fiscal e alerta de saldo insuficiente.
 
 ## Regras financeiras
 
 - Cada empenho possui seu próprio valor original e saldo; empenhos e órgãos nunca compartilham saldo.
-- O percentual é configurável por empenho e pode mudar durante a vigência.
-- A base de cálculo pode ser o valor original do empenho ou o valor de cada pedido.
-- O modo de abatimento pode ser o valor integral do pedido ou o valor líquido após a parcela percentual.
-- Cada lançamento guarda uma fotografia dos parâmetros e cálculos utilizados no momento do registro. Alterações futuras não reescrevem lançamentos anteriores.
-- Solicitação e pagamento são estados distintos. Solicitações pendentes não devem ser tratadas como pagamentos confirmados.
-- Mudanças financeiras relevantes devem gerar histórico de auditoria.
-- O sistema deve validar saldo no servidor/banco, não apenas na interface.
+- O empenho guarda somente o valor total autorizado; não se aplica percentual sobre o valor do empenho.
+- Cada pedido guarda seu valor original, o percentual de acréscimo aplicado e o valor total faturado.
+- Exemplo: pedido de R$ 1.000,00 + 20% = nota fiscal de R$ 1.200,00; o empenho é comprometido em R$ 1.200,00 no registro do pedido.
+- Pagamentos independentes abatem o valor efetivamente pago. Pagamentos vinculados a um pedido registrado não geram um segundo abatimento.
+- O saldo pode ficar negativo; a interface sinaliza o excedente em vez de mascarar o valor.
+- Registros mantêm snapshots de cálculo e trilha de auditoria; cancelamentos preservam o histórico.
 
 ## Configuração local
 
