@@ -43,6 +43,23 @@ As variáveis de ambiente devem ser configuradas localmente e no ambiente de pub
 
 Nunca expor a `service_role` key no frontend. Usar políticas RLS e buckets privados para proteger dados e documentos.
 
-## Estado do projeto
+## Implementado no repositório
 
-Repositório inicializado com documentação do escopo. A implementação será evoluída por etapas: banco e segurança, interface, fluxo de lançamentos, anexos, relatórios e publicação.
+- Aplicação React + Vite responsiva.
+- Login por Supabase Auth.
+- Cadastro de órgãos públicos.
+- Área individual por órgão.
+- Cadastro de empenhos com regra financeira inicial.
+- Configuração de percentual, base de cálculo, modo de abatimento e política de saldo.
+- Registro de solicitações com anexos PDF/imagem.
+- Versionamento de regras por empenho.
+- Confirmação de pagamento com validação do saldo no banco.
+- Visualização de saldos, solicitações pendentes e histórico.
+- Bucket privado para anexos e cabeçalhos básicos de segurança.
+- Workflow de build no GitHub Actions.
+
+## Implantação e estado
+
+Siga [docs/IMPLANTACAO.md](docs/IMPLANTACAO.md) para criar o projeto Supabase, aplicar as migrações SQL e publicar no Cloudflare Pages.
+
+O código e os scripts foram adicionados ao repositório, mas a aplicação ainda depende da criação/configuração do projeto Supabase e do Cloudflare. O build precisa ser confirmado pelo workflow do GitHub antes de considerar esta versão validada. Não use dados reais de produção até validar as migrações, permissões RLS, anexos e cálculos financeiros.
