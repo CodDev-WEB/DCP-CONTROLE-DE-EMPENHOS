@@ -452,7 +452,7 @@ function OrgDetail({ organization }) {
     const amountText = window.prompt(entry.entry_type === 'pedido' ? 'Valor original do pedido (R$):' : 'Valor pago (R$):', String(entry.entry_type === 'pedido' ? entry.order_amount ?? entry.requested_amount : entry.paid_amount ?? entry.requested_amount));
     if (amountText === null) return;
     const amount = Number(amountText.replace(',', '.'));
-    if (!/^\\d{4}-\\d{2}-\\d{2}$/.test(date) || !description.trim() || !Number.isFinite(amount) || amount <= 0) { setError('Data, descrição ou valor inválido.'); return; }
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || !description.trim() || !Number.isFinite(amount) || amount <= 0) { setError('Data, descrição ou valor inválido.'); return; }
     if (entry.entry_type === 'pedido' && !window.confirm('ATENÇÃO: se uma NF-e já foi emitida, alterar o valor no DCP NÃO cancela nem corrige a nota fiscal. Confirme que você verificou a situação fiscal antes de continuar.')) return;
     const invoiceAmount = entry.entry_type === 'pedido' ? Math.round((amount * (1 + Number(entry.markup_percentage || 0) / 100) + Number.EPSILON) * 100) / 100 : amount;
     const patch = { request_date: date, description: description.trim(), requested_amount: invoiceAmount };
