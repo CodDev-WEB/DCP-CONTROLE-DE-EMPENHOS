@@ -269,9 +269,8 @@ function OrgDetail({ organization }) {
   async function createEmpenho(event) {
     event.preventDefault(); setSaving(true); setFormError(''); setFormMessage('');
     const amount = Number(originalAmount);
-    const pct = Number(percentage);
-    if (!Number.isFinite(amount) || amount <= 0 || !Number.isFinite(pct) || pct < 0 || pct > 100) {
-      setFormError('Informe um valor maior que zero e um percentual entre 0 e 100.'); setSaving(false); return;
+    if (!Number.isFinite(amount) || amount <= 0) {
+      setFormError('Informe um valor total do empenho maior que zero.'); setSaving(false); return;
     }
     const { error: rpcError } = await supabase.rpc('create_empenho_with_rule', {
       p_organization_id: organization.id,
@@ -288,7 +287,7 @@ function OrgDetail({ organization }) {
     if (rpcError) setFormError('Não foi possível salvar o empenho. Confirme se as migrações SQL foram aplicadas. Detalhe: ' + rpcError.message);
     else {
       setShowEmpenhoForm(false); setNumber(''); setDescription(''); setOriginalAmount(''); setIssuedOn(''); setPercentage('20'); setCalculationBase('valor_empenho'); setDeductionMode('valor_integral'); setBalancePolicy('recalcular_limite_com_taxa_vigente');
-      setFormMessage('Empenho cadastrado com a regra financeira inicial.'); await loadData();
+      setFormMessage('Empenho cadastrado. O limite de saldo corresponde ao valor total informado.'); await loadData();
     }
     setSaving(false);
   }
