@@ -8,7 +8,7 @@ Controlar empenhos vinculados a órgãos públicos, registrar solicitações e p
 
 ## Arquitetura
 
-- **Frontend:** aplicação web responsiva, hospedada no Cloudflare Pages.
+- **Frontend:** aplicação web responsiva, publicada como Cloudflare Worker com Static Assets via Wrangler.
 - **Banco de dados:** Supabase PostgreSQL.
 - **Autenticação:** Supabase Auth.
 - **Arquivos:** Supabase Storage em bucket privado, com acesso autorizado.
@@ -62,4 +62,4 @@ Nunca expor a `service_role` key no frontend. Usar políticas RLS e buckets priv
 
 Siga [docs/IMPLANTACAO.md](docs/IMPLANTACAO.md) para criar o projeto Supabase, aplicar as migrações SQL e publicar no Cloudflare Pages.
 
-O código e os scripts foram adicionados ao repositório, mas a aplicação ainda depende da criação/configuração do projeto Supabase e do Cloudflare. O build precisa ser confirmado pelo workflow do GitHub antes de considerar esta versão validada. Não use dados reais de produção até validar as migrações, permissões RLS, anexos e cálculos financeiros.
+O deploy automatizado é executado pelo GitHub Actions ao enviar commits para `main`, usando `wrangler.jsonc`. Configure os secrets `CLOUDFLARE_API_TOKEN` e `CLOUDFLARE_ACCOUNT_ID` no GitHub; o token precisa de permissão de escrita para scripts/assets do Worker. O guia `docs/IMPLANTACAO.md` contém a configuração e os testes de validação. Build concluído não significa que o deploy ou a integração com o Supabase foram validados. Não use dados reais de produção até validar migrações, permissões RLS, anexos e cálculos financeiros.
