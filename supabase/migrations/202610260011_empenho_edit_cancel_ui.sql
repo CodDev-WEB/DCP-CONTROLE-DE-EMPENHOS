@@ -12,11 +12,11 @@ with totals as (
  r.deduction_mode current_deduction_mode,r.effective_from rule_effective_from
  from public.empenho_rules r where r.effective_from<=now() order by r.empenho_id,r.effective_from desc,r.created_at desc
 )
-select e.id empenho_id,e.organization_id,e.number,e.description,e.issued_on,e.is_active,
+select e.id empenho_id,e.organization_id,e.number,e.description,e.issued_on,
  coalesce(t.original_amount,0)::numeric(14,2) original_amount,
  r.rule_id,r.current_percentage,r.current_calculation_base,r.current_deduction_mode,r.rule_effective_from,
  coalesce(t.initial_operational_limit,0)::numeric(14,2) initial_operational_limit,coalesce(t.used_balance,0)::numeric(14,2) used_balance,
  coalesce(t.operational_balance,0)::numeric(14,2) operational_balance,coalesce(t.confirmed_paid_amount,0)::numeric(14,2) confirmed_paid_amount,
- coalesce(t.pending_count,0)::integer pending_count,coalesce(t.pending_amount,0)::numeric(14,2) pending_amount
+ coalesce(t.pending_count,0)::integer pending_count,coalesce(t.pending_amount,0)::numeric(14,2) pending_amount,e.is_active
 from public.empenhos e left join totals t on t.empenho_id=e.id left join rules r on r.empenho_id=e.id;
 grant select on public.empenho_balances to authenticated;
