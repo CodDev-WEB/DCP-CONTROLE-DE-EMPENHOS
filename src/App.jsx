@@ -441,15 +441,37 @@ function OrgDetail({ organization }) {
   }
 
   async function deleteEmpenho(item) {
-    if (entries.some(entry => entry.empenho_id === item.empenho_id)) { setError('Este empenho possui lançamentos vinculados. Para preservar o histórico financeiro/fiscal, a exclusão definitiva está bloqueada. Use Inativar.'); return; }
-    const confirmation = window.prompt('Digite EXCLUIR para apagar definitivamente o empenho ' + item.number + ' e seus itens. Esta ação não pode ser desfeita:');
-    if (confirmation !== 'EXCLUIR') return;
-    setError('');
+    const relatedEntries = entries.filter(entry => entry.empenho_id === item.empenho_id);
+    const attachmentCount = relatedEntries.reduce((count, entry) => count + (entry.payment_attachments || []).length, 0);
+    const confirmation = window.prompt(
+      'EXCLUSÃO DEFINITIVA DO BANCO DE DADOS\\nEmpenho: ' + item.number +
+      '\\nLançamentos vinculados: ' + relatedEntries.length +
+      '\\nAnexos/documentos: ' + attachmentCount +
+      '\\nSerão apagados o empenho, seus itens, lançamentos e vínculos de anexos. Esta ação não pode ser desfeita.\\n\\nDigite EXCLUIR TUDO para confirmar:'
+    );
+    if (confirmation !== 'EXCLUIR TUDO') return;
+    setError(''); setFormMessage('');
+    const entryIds = relatedEntries.map(entry => entry.id);
+    const storagePaths = relatedEntries.flatMap(entry => (entry.payment_attachments || []).map(a => a.storage_path).filter(Boolean));
+    if (storagePaths.length) {
+      const { error: storageError } = await supabase.storage.from('dcp-payment-attachments').remove(storagePaths);
+      if (storageError) { setError('Exclusão interrompida: não foi possível apagar os arquivos anexos do armazenamento. Detalhe: ' + storageError.message); return; }
+    }
+    if (entryIds.length) {
+      const { error: unlinkError } = await supabase.from('payment_entries').update({ related_order_id: null }).in('related_order_id', entryIds);
+      if (unlinkError) { setError('Não foi possível remover os vínculos entre lançamentos: ' + unlinkError.message); return; }
+      const { error: attachmentError } = await supabase.from('payment_attachments').delete().in('payment_entry_id', entryIds);
+      if (attachmentError) { setError('Não foi possível excluir os registros dos anexos: ' + attachmentError.message); return; }
+      const { error: entriesError } = await supabase.from('payment_entries').delete().eq('empenho_id', item.empenho_id);
+      if (entriesError) { setError('Não foi possível excluir os lançamentos vinculados. Detalhe: ' + entriesError.message); return; }
+    }
     const { error: itemsError } = await supabase.from('empenho_items').delete().eq('empenho_id', item.empenho_id);
-    if (itemsError) { setError('Não foi possível excluir os itens: ' + itemsError.message); return; }
+    if (itemsError) { setError('Não foi possível excluir os itens. Detalhe: ' + itemsError.message); return; }
     const { error: deleteError } = await supabase.from('empenhos').delete().eq('id', item.empenho_id);
-    if (deleteError) { setError('Não foi possível excluir o empenho. Pode haver regras ou outros registros vinculados: ' + deleteError.message); return; }
-    setFormMessage('Empenho e itens excluídos.'); await loadData();
+    if (deleteError) { setError('Não foi possível excluir o empenho. O banco recusou a exclusão por algum vínculo restante. Detalhe: ' + deleteError.message); return; }
+    setExpandedEmpenhoId(current => current === item.empenho_id ? null : current);
+    setFormMessage('Empenho, itens, lançamentos e anexos excluídos do banco de dados e do armazenamento.');
+    await loadData();
   }
 
   async function cancelEmpenho(item) {
