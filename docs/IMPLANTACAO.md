@@ -13,6 +13,7 @@ O projeto Supabase do DCP usa a URL e a chave Publishable fornecidas pelo respon
    - `202610260005_balance_validation.sql`
    - `202610260006_balance_policy.sql`
    - `202610260007_serialize_payment_confirmations.sql`
+   - `202610260008_orders_and_payments.sql`
 3. Verifique se cada script concluiu sem erros.
 4. Em **Authentication → Users**, crie o usuário inicial da equipe. O sistema não oferece cadastro público de usuários.
 5. Em **Project Connect** ou **Settings → API Keys**, copie a Project URL e a chave **Publishable**.
@@ -50,9 +51,11 @@ O Cloudflare Pages deve reconstruir o site após novos commits na branch de prod
 
 ## 4. Verificações antes de usar dados reais
 
-- Confirmar que as sete migrações foram aplicadas na ordem correta e sem erros.
+- Confirmar que as oito migrações foram aplicadas na ordem correta e sem erros.
 - Criar usuário inicial pelo painel Supabase Auth.
-- Confirmar login, criação de órgão, criação de empenho, solicitação, anexo e confirmação de pagamento.
+- Confirmar login, cadastro de órgão e empenho, lançamento de pedido com cálculo de nota fiscal, pagamento independente e pagamento vinculado a pedido.
+- Conferir o exemplo de pedido de R$ 1.000,00 com acréscimo de 20%: NF de R$ 1.200,00 e abatimento/comprometimento de R$ 1.200,00 no empenho.
+- Confirmar que pagamentos vinculados a pedidos não abatam o empenho uma segunda vez e que saldo negativo seja exibido com alerta.
 - Confirmar que usuários não autenticados não conseguem consultar tabelas nem anexos.
 - Restringir as políticas RLS por perfil e órgão antes de adicionar usuários de diferentes organizações.
 - Fazer backup e testar restauração antes de armazenar documentos ou dados financeiros de produção.
