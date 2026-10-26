@@ -30,6 +30,19 @@ jobs:
       - name: Build application
         run: npm run build
 
+      - name: Validate Cloudflare credentials
+        if: github.event_name == 'push'
+        shell: bash
+        run: |
+          if [[ -z "$CLOUDFLARE_API_TOKEN" ]]; then
+            echo "::error::Missing GitHub Actions secret CLOUDFLARE_API_TOKEN."
+            exit 1
+          fi
+          if [[ -z "$CLOUDFLARE_ACCOUNT_ID" ]]; then
+            echo "::error::Missing GitHub Actions secret CLOUDFLARE_ACCOUNT_ID."
+            exit 1
+          fi
+
       - name: Deploy to Cloudflare Workers
-        if: github.event_name == 'push' && env.CLOUDFLARE_API_TOKEN != '' && env.CLOUDFLARE_ACCOUNT_ID != ''
-        run: npx wrangler deploy
+        if: github.event_name == 'push'
+        run: npx --yes wrangler@4.153.0 deploy
