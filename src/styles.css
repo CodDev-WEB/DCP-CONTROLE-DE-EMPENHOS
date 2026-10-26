@@ -45,3 +45,8 @@
 .upload-field input{font-size:10px;border:0;padding:9px 0 0;background:transparent}
 .upload-field small{display:block;color:#3c8564;font-size:10px;margin-top:8px}
 @media(max-width:800px){.form-grid{grid-template-columns:1fr}.rule-panel{grid-template-columns:1fr}.rule-panel>div{grid-column:auto}.data-table{min-width:760px}.row-actions{min-width:170px}.detail-stats{margin-top:18px}}
+
+.history-tools{display:flex;align-items:center;gap:12px}
+.month-filter{display:flex;align-items:center;gap:8px;font-size:10px;color:#718596;white-space:nowrap}
+.month-filter input{border:1px solid #dfe7ed;border-radius:8px;padding:7px 9px;color:#415a6f;font-size:10px;background:#fff}
+@media(max-width:600px){.history-tools{align-items:flex-end;flex-direction:column}.month-filter{width:100%;justify-content:space-between}.month-filter input{flex:1;max-width:170px}}
