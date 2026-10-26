@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   Activity, Building2, CalendarDays, CheckCircle2, ChevronRight, CircleDollarSign,
   Clock3, FileText, LayoutDashboard, LogOut, Menu, Paperclip, Plus, RefreshCw,
-  Search, ShieldCheck, Wallet, X
+  Search, ShieldCheck, Wallet, X, UploadCloud
 } from 'lucide-react';
 import { isSupabaseConfigured, supabase } from './lib/supabase.js';
 
@@ -242,6 +242,9 @@ function OrgDetail({ organization }) {
   const [requestDate, setRequestDate] = useState(new Date().toISOString().slice(0,10));
   const [paymentDescription, setPaymentDescription] = useState('');
   const [requestAmount, setRequestAmount] = useState('');
+  const [entryType, setEntryType] = useState('pedido');
+  const [markupPercentage, setMarkupPercentage] = useState('20');
+  const [relatedOrderId, setRelatedOrderId] = useState('');
   const [attachment, setAttachment] = useState(null);
   const [monthFilter, setMonthFilter] = useState(new Date().toISOString().slice(0,7));
 
@@ -249,7 +252,7 @@ function OrgDetail({ organization }) {
     setBusy(true); setError('');
     const [balanceResult, entryResult] = await Promise.all([
       supabase.from('empenho_balances').select('*').eq('organization_id', organization.id).order('number'),
-      supabase.from('payment_entries').select('id,empenho_id,request_date,paid_date,description,requested_amount,status,paid_amount,percentage_snapshot,percentage_amount_snapshot,balance_deduction_snapshot,created_at,payment_attachments(id,original_filename,storage_path)').order('request_date', { ascending: false })
+      supabase.from('payment_entries').select('id,empenho_id,request_date,paid_date,description,requested_amount,status,paid_amount,percentage_snapshot,percentage_amount_snapshot,balance_deduction_snapshot,entry_type,order_amount,markup_percentage,invoice_amount,related_order_id,created_at,payment_attachments(id,original_filename,storage_path)').order('request_date', { ascending: false })
     ]);
     if (balanceResult.error) setError(balanceResult.error.message);
     else setBalances(balanceResult.data || []);
@@ -317,9 +320,16 @@ function OrgDetail({ organization }) {
 
   async function createPayment(event) {
     event.preventDefault(); setSaving(true); setFormError(''); setFormMessage('');
-    const amount = Number(requestAmount);
-    if (!selectedEmpenho || !Number.isFinite(amount) || amount <= 0 || !paymentDescription.trim()) {
+    const enteredAmount = Number(requestAmount);
+    const markup = Number(markupPercentage);
+    if (!selectedEmpenho || !Number.isFinite(enteredAmount) || enteredAmount <= 0 || !paymentDescription.trim()) {
       setFormError('Preencha a descrição e um valor válido.'); setSaving(false); return;
+    }
+    if (entryType === 'pedido' && (!Number.isFinite(markup) || markup < 0 || markup > 100)) {
+      setFormError('Informe um percentual entre 0 e 100.'); setSaving(false); return;
+    }
+    if (entryType === 'pagamento' && relatedOrderId && !entries.some(e => e.id === relatedOrderId && e.entry_type === 'pedido')) {
+      setFormError('Selecione um pedido válido para vincular este pagamento.'); setSaving(false); return;
     }
     if (attachment && !['application/pdf','image/jpeg','image/png','image/webp'].includes(attachment.type)) {
       setFormError('Anexe apenas PDF, JPG, PNG ou WEBP.'); setSaving(false); return;
@@ -327,28 +337,36 @@ function OrgDetail({ organization }) {
     if (attachment && attachment.size > 10 * 1024 * 1024) {
       setFormError('O arquivo deve ter no máximo 10 MB.'); setSaving(false); return;
     }
-    const baseAmount = selectedEmpenho.current_calculation_base === 'valor_empenho'
-      ? Number(selectedEmpenho.original_amount) : amount;
-    const pctAmount = Math.round(baseAmount * Number(selectedEmpenho.current_percentage) / 100 * 100) / 100;
-    const deduction = selectedEmpenho.current_deduction_mode === 'valor_integral'
-      ? amount : Math.round(amount * (1 - Number(selectedEmpenho.current_percentage) / 100) * 100) / 100;
+
+    const invoiceAmount = entryType === 'pedido'
+      ? Math.round((enteredAmount * (1 + markup / 100) + Number.EPSILON) * 100) / 100
+      : enteredAmount;
+    const linkedOrder = entryType === 'pagamento' && relatedOrderId
+      ? entries.find(e => e.id === relatedOrderId) : null;
+    const deduction = entryType === 'pedido' ? invoiceAmount : (linkedOrder ? 0 : enteredAmount);
     const { data: payment, error: insertError } = await supabase.from('payment_entries').insert({
       empenho_id: selectedEmpenho.empenho_id,
       request_date: requestDate,
+      paid_date: entryType === 'pagamento' ? requestDate : null,
       description: paymentDescription.trim(),
-      requested_amount: amount,
-      status: 'solicitado',
+      requested_amount: invoiceAmount,
+      status: entryType === 'pagamento' ? 'pago' : 'solicitado',
+      entry_type: entryType,
+      order_amount: entryType === 'pedido' ? enteredAmount : null,
+      markup_percentage: entryType === 'pedido' ? markup : 0,
+      invoice_amount: invoiceAmount,
+      related_order_id: linkedOrder?.id || null,
       rule_id: selectedEmpenho.rule_id,
-      percentage_snapshot: selectedEmpenho.current_percentage,
-      calculation_base_snapshot: selectedEmpenho.current_calculation_base,
-      deduction_mode_snapshot: selectedEmpenho.current_deduction_mode,
-      percentage_amount_snapshot: pctAmount,
+      percentage_snapshot: entryType === 'pedido' ? markup : 0,
+      calculation_base_snapshot: 'valor_pedido',
+      deduction_mode_snapshot: 'valor_integral',
+      percentage_amount_snapshot: entryType === 'pedido' ? invoiceAmount - enteredAmount : 0,
       balance_deduction_snapshot: deduction,
-      calculation_base_amount_snapshot: baseAmount,
-      paid_amount: 0
+      calculation_base_amount_snapshot: enteredAmount,
+      paid_amount: entryType === 'pagamento' ? enteredAmount : 0
     }).select('id').single();
     if (insertError) {
-      setFormError('Não foi possível registrar a solicitação: ' + insertError.message); setSaving(false); return;
+      setFormError('Não foi possível registrar o lançamento: ' + insertError.message); setSaving(false); return;
     }
     let uploadError = '';
     if (attachment) {
@@ -365,7 +383,13 @@ function OrgDetail({ organization }) {
       }
     }
     setShowPaymentForm(false); setPaymentDescription(''); setRequestAmount(''); setAttachment(null);
-    setFormMessage(uploadError ? 'Solicitação registrada, mas houve erro no anexo: ' + uploadError : 'Solicitação registrada com sucesso. O saldo só será abatido após a confirmação do pagamento.');
+    setEntryType('pedido'); setMarkupPercentage('20'); setRelatedOrderId('');
+    setFormMessage(uploadError ? 'Lançamento registrado, mas houve erro no anexo: ' + uploadError :
+      entryType === 'pedido'
+        ? 'Pedido registrado. Valor do pedido + percentual calculado e comprometido no saldo do empenho.'
+        : linkedOrder
+          ? 'Pagamento registrado e vinculado ao pedido; não houve segundo abatimento do empenho.'
+          : 'Pagamento registrado e abatido do saldo do empenho.');
     await loadData(); setSaving(false);
   }
 
@@ -401,14 +425,23 @@ function OrgDetail({ organization }) {
     </div>
     <section className="section-card detail-section">
       <div className="section-head"><div><h3>Empenhos deste órgão</h3><p>Cada empenho mantém seu próprio percentual, saldo e histórico.</p></div><button className="secondary-btn" onClick={loadData}><RefreshCw size={15}/> Atualizar</button></div>
-      {busy ? <div className="inline-loading"><div className="spinner"/> Carregando empenhos…</div> : balances.length ? <div className="table-scroll"><table className="data-table"><thead><tr><th>Empenho</th><th>Valor original</th><th>Regra vigente</th><th>Utilizado</th><th>Saldo operacional</th><th></th></tr></thead><tbody>{balances.map(item=><tr key={item.empenho_id}><td><strong>{item.number}</strong><small>{item.description}</small></td><td>{money(item.original_amount)}</td><td><strong>{Number(item.current_percentage || 0)}%</strong><small>{item.current_calculation_base === 'valor_empenho' ? 'Base: empenho' : 'Base: pedido'} · {item.current_deduction_mode === 'valor_integral' ? 'Abate integral' : 'Abate líquido'}</small></td><td>{money(item.used_balance)}</td><td><strong className="balance-value">{money(item.operational_balance)}</strong><small>{item.pending_count} solicitações pendentes</small></td><td><div className="row-actions"><button className="secondary-btn compact" onClick={()=>{setSelectedEmpenho(item);setPercentage(String(item.current_percentage));setCalculationBase(item.current_calculation_base);setDeductionMode(item.current_deduction_mode);setFormError('');setShowRuleForm(true);}}>Alterar regra</button><button className="secondary-btn compact" onClick={()=>{setSelectedEmpenho(item);setFormError('');setShowPaymentForm(true);}}>Lançar pagamento</button></div></td></tr>)}</tbody></table></div> : <div className="empty-state"><div className="empty-icon"><FileText size={24}/></div><h3>Nenhum empenho cadastrado</h3><p>Cadastre o primeiro empenho para começar a registrar solicitações e acompanhar o saldo deste órgão.</p><button className="primary-btn" onClick={()=>setShowEmpenhoForm(true)}><Plus size={16}/> Cadastrar empenho</button></div>}
+      {busy ? <div className="inline-loading"><div className="spinner"/> Carregando empenhos…</div> : balances.length ? <div className="table-scroll"><table className="data-table"><thead><tr><th>Empenho</th><th>Valor original</th><th>Regra vigente</th><th>Utilizado</th><th>Saldo operacional</th><th></th></tr></thead><tbody>{balances.map(item=><tr key={item.empenho_id}><td><strong>{item.number}</strong><small>{item.description}</small></td><td>{money(item.original_amount)}</td><td><strong>{Number(item.current_percentage || 0)}%</strong><small>{item.current_calculation_base === 'valor_empenho' ? 'Base: empenho' : 'Base: pedido'} · {item.current_deduction_mode === 'valor_integral' ? 'Abate integral' : 'Abate líquido'}</small></td><td>{money(item.used_balance)}</td><td><strong className="balance-value">{money(item.operational_balance)}</strong><small>{item.pending_count} solicitações pendentes</small></td><td><div className="row-actions"><button className="secondary-btn compact" onClick={()=>{setSelectedEmpenho(item);setPercentage(String(item.current_percentage));setCalculationBase(item.current_calculation_base);setDeductionMode(item.current_deduction_mode);setFormError('');setShowRuleForm(true);}}>Alterar regra</button><button className="secondary-btn compact" onClick={()=>{setSelectedEmpenho(item);setEntryType('pedido');setRequestAmount('');setPaymentDescription('');setMarkupPercentage('20');setRelatedOrderId('');setFormError('');setShowPaymentForm(true);}}>Novo lançamento</button></div></td></tr>)}</tbody></table></div> : <div className="empty-state"><div className="empty-icon"><FileText size={24}/></div><h3>Nenhum empenho cadastrado</h3><p>Cadastre o primeiro empenho para começar a registrar solicitações e acompanhar o saldo deste órgão.</p><button className="primary-btn" onClick={()=>setShowEmpenhoForm(true)}><Plus size={16}/> Cadastrar empenho</button></div>}
     </section>
     <section className="section-card detail-section">
       <div className="section-head"><div><h3>Histórico de solicitações e pagamentos</h3><p>Os registros anteriores preservam os parâmetros utilizados no lançamento.</p></div><div className="history-tools"><label className="month-filter">Mês de referência<input type="month" value={monthFilter} onChange={e=>setMonthFilter(e.target.value)}/></label><span className="count-pill">{filteredEntries.length} registros</span></div></div>
-      {filteredEntries.length ? <div className="table-scroll"><table className="data-table"><thead><tr><th>Solicitação</th><th>Empenho</th><th>Valor</th><th>Taxa salva</th><th>Situação</th><th>Documentos</th><th></th></tr></thead><tbody>{filteredEntries.map(entry=>{const linked=balances.find(b=>b.empenho_id===entry.empenho_id);return <tr key={entry.id}><td><strong>{new Date(entry.request_date+'T12:00:00').toLocaleDateString('pt-BR')}</strong><small>{entry.description}</small></td><td>{linked?.number || '—'}</td><td>{money(entry.requested_amount)}</td><td>{entry.percentage_snapshot}%<small>{money(entry.percentage_amount_snapshot)} calculados</small></td><td><span className={'status-pill '+(entry.status==='pago'?'paid':entry.status==='cancelado'?'cancelled':'pending')}>{entry.status==='pago'?'Pago':entry.status==='cancelado'?'Cancelado':'Solicitado'}</span>{entry.paid_date&&<small>Pago em {new Date(entry.paid_date+'T12:00:00').toLocaleDateString('pt-BR')}</small>}</td><td>{(entry.payment_attachments||[]).map(a=><button key={a.id} className="file-link" onClick={()=>openAttachment(a)}><Paperclip size={13}/>{a.original_filename}</button>)}</td><td>{entry.status==='solicitado'&&<button className="secondary-btn compact" onClick={()=>confirmPaid(entry)}>Confirmar pagamento</button>}</td></tr>})}</tbody></table></div> : <div className="empty-inline"><Clock3 size={18}/><span>{monthFilter ? 'Não há lançamentos para este mês.' : 'As solicitações registradas aparecerão aqui.'}</span></div>}
+      {filteredEntries.length ? <div className="table-scroll"><table className="data-table"><thead><tr><th>Solicitação</th><th>Empenho</th><th>Tipo / valor</th><th>Acréscimo</th><th>Situação</th><th>Documentos</th><th></th></tr></thead><tbody>{filteredEntries.map(entry=>{const linked=balances.find(b=>b.empenho_id===entry.empenho_id);return <tr key={entry.id}><td><strong>{new Date(entry.request_date+'T12:00:00').toLocaleDateString('pt-BR')}</strong><small>{entry.description}</small></td><td>{linked?.number || '—'}</td><td><strong>{entry.entry_type==='pedido'?'Pedido':'Pagamento'}</strong><small>{entry.entry_type==='pedido'?'Pedido: '+money(entry.order_amount)+' · NF: '+money(entry.invoice_amount):'Valor registrado: '+money(entry.paid_amount)}</small></td><td>{entry.entry_type==='pedido'?entry.markup_percentage+'% · '+money(entry.invoice_amount-entry.order_amount):entry.related_order_id?'Vinculado ao pedido':'Sem acréscimo'}</td><td><span className={'status-pill '+(entry.status==='pago'?'paid':entry.status==='cancelado'?'cancelled':'pending')}>{entry.status==='pago'?'Pago':entry.status==='cancelado'?'Cancelado':'Solicitado'}</span>{entry.paid_date&&<small>Pago em {new Date(entry.paid_date+'T12:00:00').toLocaleDateString('pt-BR')}</small>}</td><td>{(entry.payment_attachments||[]).map(a=><button key={a.id} className="file-link" onClick={()=>openAttachment(a)}><Paperclip size={13}/>{a.original_filename}</button>)}</td><td>{entry.status==='solicitado'&&<button className="secondary-btn compact" onClick={()=>confirmPaid(entry)}>Confirmar pagamento</button>}</td></tr>})}</tbody></table></div> : <div className="empty-inline"><Clock3 size={18}/><span>{monthFilter ? 'Não há lançamentos para este mês.' : 'As solicitações registradas aparecerão aqui.'}</span></div>}
     </section>
     {showEmpenhoForm && <div className="modal-backdrop" role="presentation" onMouseDown={e=>{if(e.target===e.currentTarget)setShowEmpenhoForm(false);}}><form className="modal-card wide-modal" onSubmit={createEmpenho}><div className="modal-head"><div><span className="eyebrow">NOVO REGISTRO</span><h2>Cadastrar empenho</h2><p>O empenho e sua regra inicial serão salvos juntos.</p></div><button type="button" className="icon-btn" onClick={()=>setShowEmpenhoForm(false)}><X size={19}/></button></div><div className="form-grid"><label>Número do empenho<input value={number} onChange={e=>setNumber(e.target.value)} required maxLength={80} placeholder="Ex.: 2026NE000123"/></label><label>Data do empenho<input type="date" value={issuedOn} onChange={e=>setIssuedOn(e.target.value)}/></label></div><label>Descrição<input value={description} onChange={e=>setDescription(e.target.value)} required maxLength={250} placeholder="Descrição ou objeto do empenho"/></label><label>Valor original (R$)<input type="number" min="0.01" step="0.01" value={originalAmount} onChange={e=>setOriginalAmount(e.target.value)} required placeholder="10000,00"/></label><div className="rule-panel"><div><strong>Regra financeira inicial</strong><p>Esta configuração fica registrada no histórico do empenho.</p></div><label>Percentual (%)<input type="number" min="0" max="100" step="0.01" value={percentage} onChange={e=>setPercentage(e.target.value)} required/></label><label>Base de cálculo<select value={calculationBase} onChange={e=>setCalculationBase(e.target.value)}><option value="valor_empenho">Valor total do empenho</option><option value="valor_pedido">Cada pedido solicitado</option></select></label><label>Abatimento do saldo<select value={deductionMode} onChange={e=>setDeductionMode(e.target.value)}><option value="valor_integral">Valor integral do pedido</option><option value="valor_liquido">Valor líquido após percentual</option></select></label><label>Ao alterar o percentual<select value={balancePolicy} onChange={e=>setBalancePolicy(e.target.value)}><option value="preservar_limite_original">Preservar limite operacional inicial</option><option value="recalcular_limite_com_taxa_vigente">Recalcular limite pela nova taxa</option></select></label></div>{formError&&<div className="alert error">{formError}</div>}<div className="modal-actions"><button type="button" className="secondary-btn" onClick={()=>setShowEmpenhoForm(false)}>Cancelar</button><button className="primary-btn" disabled={saving}>{saving?'Salvando…':'Salvar empenho'}</button></div></form></div>}
     {showRuleForm && selectedEmpenho && <div className="modal-backdrop" role="presentation" onMouseDown={e=>{if(e.target===e.currentTarget)setShowRuleForm(false);}}><form className="modal-card wide-modal" onSubmit={saveRuleChange}><div className="modal-head"><div><span className="eyebrow">HISTÓRICO DE REGRAS</span><h2>Alterar regra do empenho</h2><p>Empenho {selectedEmpenho.number}. A regra atual não será sobrescrita.</p></div><button type="button" className="icon-btn" onClick={()=>setShowRuleForm(false)}><X size={19}/></button></div><div className="rule-panel"><label>Percentual (%)<input type="number" min="0" max="100" step="0.01" value={percentage} onChange={e=>setPercentage(e.target.value)} required/></label><label>Base de cálculo<select value={calculationBase} onChange={e=>setCalculationBase(e.target.value)}><option value="valor_empenho">Valor total do empenho</option><option value="valor_pedido">Cada pedido solicitado</option></select></label><label>Abatimento do saldo<select value={deductionMode} onChange={e=>setDeductionMode(e.target.value)}><option value="valor_integral">Valor integral do pedido</option><option value="valor_liquido">Valor líquido após percentual</option></select></label></div><div className="rule-summary"><span>Regra atual</span><strong>{selectedEmpenho.current_percentage}% · {selectedEmpenho.current_calculation_base==='valor_empenho'?'base no empenho':'base no pedido'}</strong><small>A nova regra terá vigência a partir de agora. Os cálculos salvos nos lançamentos anteriores não serão modificados.</small></div>{formError&&<div className="alert error">{formError}</div>}<div className="modal-actions"><button type="button" className="secondary-btn" onClick={()=>setShowRuleForm(false)}>Cancelar</button><button className="primary-btn" disabled={saving}>{saving?'Salvando…':'Registrar nova regra'}</button></div></form></div>}
-    {showPaymentForm && selectedEmpenho && <div className="modal-backdrop" role="presentation" onMouseDown={e=>{if(e.target===e.currentTarget)setShowPaymentForm(false);}}><form className="modal-card wide-modal" onSubmit={createPayment}><div className="modal-head"><div><span className="eyebrow">LANÇAMENTO FINANCEIRO</span><h2>Solicitar pagamento</h2><p>Empenho {selectedEmpenho.number} · saldo atual {money(selectedEmpenho.operational_balance)}</p></div><button type="button" className="icon-btn" onClick={()=>setShowPaymentForm(false)}><X size={19}/></button></div><div className="form-grid"><label>Data da solicitação<input type="date" value={requestDate} onChange={e=>setRequestDate(e.target.value)} required/></label><label>Valor solicitado (R$)<input type="number" min="0.01" step="0.01" value={requestAmount} onChange={e=>setRequestAmount(e.target.value)} required placeholder="1000,00"/></label></div><label>Descrição do pagamento<input value={paymentDescription} onChange={e=>setPaymentDescription(e.target.value)} required maxLength={250} placeholder="Descreva o pagamento solicitado"/></label><div className="rule-summary"><span>Regra vigente</span><strong>{selectedEmpenho.current_percentage}% · {selectedEmpenho.current_calculation_base==='valor_empenho'?'base no empenho':'base no pedido'} · {selectedEmpenho.current_deduction_mode==='valor_integral'?'abatimento integral':'abatimento líquido'}</strong><small>O registro guardará uma cópia desta regra. Alterações futuras não modificam este lançamento.</small></div><label className="upload-field"><span><UploadCloud size={18}/> Anexar comprovante ou documento (PDF/JPG/PNG/WEBP, até 10 MB)</span><input type="file" accept="application/pdf,image/jpeg,image/png,image/webp" onChange={e=>setAttachment(e.target.files?.[0]||null)}/>{attachment&&<small>Arquivo selecionado: {attachment.name}</small>}</label>{formError&&<div className="alert error">{formError}</div>}<div className="modal-actions"><button type="button" className="secondary-btn" onClick={()=>setShowPaymentForm(false)}>Cancelar</button><button className="primary-btn" disabled={saving}>{saving?'Salvando…':'Registrar solicitação'}</button></div></form></div>}
+    {showPaymentForm && selectedEmpenho && <div className="modal-backdrop" role="presentation" onMouseDown={e=>{if(e.target===e.currentTarget)setShowPaymentForm(false);}}><form className="modal-card wide-modal" onSubmit={createPayment}>
+      <div className="modal-head"><div><span className="eyebrow">LANÇAMENTO FINANCEIRO</span><h2>Novo lançamento</h2><p>Empenho {selectedEmpenho.number} · saldo disponível {money(selectedEmpenho.operational_balance)}</p></div><button type="button" className="icon-btn" onClick={()=>setShowPaymentForm(false)}><X size={19}/></button></div>
+      <label>Tipo de lançamento<select value={entryType} onChange={e=>{setEntryType(e.target.value);setRequestAmount('');setRelatedOrderId('');}}><option value="pedido">Pedido recebido (calcular NF e comprometer saldo)</option><option value="pagamento">Pagamento realizado (abater valor pago)</option></select></label>
+      <div className="form-grid"><label>Data do lançamento<input type="date" value={requestDate} onChange={e=>setRequestDate(e.target.value)} required/></label><label>{entryType==='pedido'?'Valor original do pedido (R$)':'Valor pago (R$)'}<input type="number" min="0.01" step="0.01" value={requestAmount} onChange={e=>setRequestAmount(e.target.value)} required placeholder="1000.00"/></label></div>
+      {entryType==='pedido' ? <><label>Acréscimo aplicado (%)<input type="number" min="0" max="100" step="0.01" value={markupPercentage} onChange={e=>setMarkupPercentage(e.target.value)} required/></label><div className="rule-summary"><span>Prévia da nota fiscal</span><strong>{money(Number(requestAmount||0)*(1+Number(markupPercentage||0)/100))}</strong><small>{money(Number(requestAmount||0))} de pedido + {money(Number(requestAmount||0)*Number(markupPercentage||0)/100)} de acréscimo. Esse total será abatido/comprometido no empenho ao registrar o pedido.</small></div></> :
+        <label>Vincular a pedido existente (opcional)<select value={relatedOrderId} onChange={e=>setRelatedOrderId(e.target.value)}><option value="">Pagamento independente — abater este valor do empenho</option>{entries.filter(e=>e.entry_type==='pedido' && e.empenho_id===selectedEmpenho.empenho_id && e.status!=='cancelado').map(e=><option key={e.id} value={e.id}>{e.description} — NF {money(e.invoice_amount||e.requested_amount)}</option>)}</select><small>Se vinculado a um pedido já registrado, o pagamento será relacionado ao pedido e não abaterá o empenho uma segunda vez.</small></label>}
+      <label>Descrição<input value={paymentDescription} onChange={e=>setPaymentDescription(e.target.value)} required maxLength={250} placeholder={entryType==='pedido'?'Ex.: Pedido recebido do órgão / objeto':'Ex.: Pagamento realizado pelo órgão / referência'}/></label>
+      <label className="upload-field"><span><UploadCloud size={18}/> Anexar documento (PDF/JPG/PNG/WEBP, até 10 MB)</span><input type="file" accept="application/pdf,image/jpeg,image/png,image/webp" onChange={e=>setAttachment(e.target.files?.[0]||null)}/>{attachment&&<small>Arquivo selecionado: {attachment.name}</small>}</label>
+      {formError&&<div className="alert error">{formError}</div>}<div className="modal-actions"><button type="button" className="secondary-btn" onClick={()=>setShowPaymentForm(false)}>Cancelar</button><button className="primary-btn" disabled={saving}>{saving?'Salvando…':entryType==='pedido'?'Registrar pedido e calcular NF':'Registrar pagamento'}</button></div>
+    </form></div>}
   </>;
 }
