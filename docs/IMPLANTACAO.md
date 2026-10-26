@@ -12,6 +12,7 @@
    - `202610260004_empenho_rpcs_and_balances.sql`
    - `202610260005_balance_validation.sql`
    - `202610260006_balance_policy.sql`
+   - `202610260007_serialize_payment_confirmations.sql`
 5. Verifique se cada script concluiu sem erros.
 6. Em **Authentication**, crie o usuário inicial da equipe. O sistema não oferece cadastro público de usuários.
 7. Em **Project Connect** ou **Settings → API Keys**, copie a Project URL e a chave **Publishable** (ou a chave legada **anon**, se for o que o projeto disponibilizar).
