@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
-  Activity, ArrowDownRight, ArrowUpRight, Building2, CalendarDays,
-  ChevronRight, CircleDollarSign, FileText, LayoutDashboard, LogOut,
-  Menu, Plus, Search, ShieldCheck, UploadCloud, Wallet, X
+  Activity, Building2, CalendarDays, CheckCircle2, ChevronRight, CircleDollarSign,
+  Clock3, FileText, LayoutDashboard, LogOut, Menu, Paperclip, Plus, RefreshCw,
+  Search, ShieldCheck, Wallet, X
 } from 'lucide-react';
 import { isSupabaseConfigured, supabase } from './lib/supabase.js';
 
@@ -182,9 +182,7 @@ export default function App() {
         <div className="page-content">
           {activeOrg ? (
             <>
-              <div className="page-heading"><div><span className="eyebrow">ÁREA DO ÓRGÃO</span><h2>{activeOrg.name}</h2><p>Empenhos, lançamentos e histórico deste órgão serão organizados nesta área.</p></div><button className="primary-btn" onClick={() => alert('O cadastro de empenhos será habilitado na próxima etapa de implementação.')}><Plus size={17} /> Novo empenho</button></div>
-              <div className="org-details-strip"><div><span>Nome de exibição</span><strong>{activeOrg.short_name || '—'}</strong></div><div><span>Esfera</span><strong>{activeOrg.government_level || 'Não informada'}</strong></div><div><span>Status</span><strong className="status-active">Ativo</strong></div></div>
-              <div className="empty-state large"><div className="empty-icon"><FileText size={25} /></div><h3>Vamos começar pelos empenhos</h3><p>Esta área é exclusiva de {activeOrg.short_name || activeOrg.name}. Os saldos e pagamentos serão calculados individualmente por empenho.</p><button className="secondary-btn" onClick={() => alert('O cadastro de empenhos será implementado na próxima etapa.')}>Preparar primeiro empenho <ChevronRight size={16} /></button></div>
+              <OrgDetail key={activeOrg.id} organization={activeOrg} />
             </>
           ) : (
             <>
@@ -218,4 +216,170 @@ export default function App() {
 
 function Stat({ icon, label, value, note }) {
   return <div className="stat-card"><div className="stat-icon">{icon}</div><span className="stat-label">{label}</span><strong className="stat-value">{value}</strong><span className="stat-note">{note}</span></div>;
+}
+
+
+function OrgDetail({ organization }) {
+  const [balances, setBalances] = useState([]);
+  const [entries, setEntries] = useState([]);
+  const [busy, setBusy] = useState(true);
+  const [error, setError] = useState('');
+  const [showEmpenhoForm, setShowEmpenhoForm] = useState(false);
+  const [showPaymentForm, setShowPaymentForm] = useState(false);
+  const [selectedEmpenho, setSelectedEmpenho] = useState(null);
+  const [saving, setSaving] = useState(false);
+  const [formError, setFormError] = useState('');
+  const [formMessage, setFormMessage] = useState('');
+  const [number, setNumber] = useState('');
+  const [description, setDescription] = useState('');
+  const [originalAmount, setOriginalAmount] = useState('');
+  const [issuedOn, setIssuedOn] = useState('');
+  const [percentage, setPercentage] = useState('20');
+  const [calculationBase, setCalculationBase] = useState('valor_empenho');
+  const [deductionMode, setDeductionMode] = useState('valor_integral');
+  const [requestDate, setRequestDate] = useState(new Date().toISOString().slice(0,10));
+  const [paymentDescription, setPaymentDescription] = useState('');
+  const [requestAmount, setRequestAmount] = useState('');
+  const [attachment, setAttachment] = useState(null);
+
+  const loadData = useCallback(async () => {
+    setBusy(true); setError('');
+    const [balanceResult, entryResult] = await Promise.all([
+      supabase.from('empenho_balances').select('*').eq('organization_id', organization.id).order('number'),
+      supabase.from('payment_entries').select('id,empenho_id,request_date,paid_date,description,requested_amount,status,paid_amount,percentage_snapshot,percentage_amount_snapshot,balance_deduction_snapshot,created_at,payment_attachments(id,original_filename,storage_path)').order('request_date', { ascending: false })
+    ]);
+    if (balanceResult.error) setError(balanceResult.error.message);
+    else setBalances(balanceResult.data || []);
+    if (entryResult.error) setError(current => current ? current + ' | ' + entryResult.error.message : entryResult.error.message);
+    else {
+      const ids = new Set((balanceResult.data || []).map(x => x.empenho_id));
+      setEntries((entryResult.data || []).filter(x => ids.has(x.empenho_id)));
+    }
+    setBusy(false);
+  }, [organization.id]);
+
+  useEffect(() => { loadData(); }, [loadData]);
+
+  async function createEmpenho(event) {
+    event.preventDefault(); setSaving(true); setFormError(''); setFormMessage('');
+    const amount = Number(originalAmount);
+    const pct = Number(percentage);
+    if (!Number.isFinite(amount) || amount <= 0 || !Number.isFinite(pct) || pct < 0 || pct > 100) {
+      setFormError('Informe um valor maior que zero e um percentual entre 0 e 100.'); setSaving(false); return;
+    }
+    const { error: rpcError } = await supabase.rpc('create_empenho_with_rule', {
+      p_organization_id: organization.id,
+      p_number: number.trim(),
+      p_description: description.trim(),
+      p_original_amount: amount,
+      p_percentage: pct,
+      p_calculation_base: calculationBase,
+      p_deduction_mode: deductionMode,
+      p_issued_on: issuedOn || null,
+      p_reason: 'Regra inicial do empenho'
+    });
+    if (rpcError) setFormError('Não foi possível salvar o empenho. Confirme se as migrações SQL foram aplicadas. Detalhe: ' + rpcError.message);
+    else {
+      setShowEmpenhoForm(false); setNumber(''); setDescription(''); setOriginalAmount(''); setIssuedOn(''); setPercentage('20'); setCalculationBase('valor_empenho'); setDeductionMode('valor_integral');
+      setFormMessage('Empenho cadastrado com a regra financeira inicial.'); await loadData();
+    }
+    setSaving(false);
+  }
+
+  async function createPayment(event) {
+    event.preventDefault(); setSaving(true); setFormError(''); setFormMessage('');
+    const amount = Number(requestAmount);
+    if (!selectedEmpenho || !Number.isFinite(amount) || amount <= 0 || !paymentDescription.trim()) {
+      setFormError('Preencha a descrição e um valor válido.'); setSaving(false); return;
+    }
+    if (attachment && !['application/pdf','image/jpeg','image/png','image/webp'].includes(attachment.type)) {
+      setFormError('Anexe apenas PDF, JPG, PNG ou WEBP.'); setSaving(false); return;
+    }
+    if (attachment && attachment.size > 10 * 1024 * 1024) {
+      setFormError('O arquivo deve ter no máximo 10 MB.'); setSaving(false); return;
+    }
+    const baseAmount = selectedEmpenho.current_calculation_base === 'valor_empenho'
+      ? Number(selectedEmpenho.original_amount) : amount;
+    const pctAmount = Math.round(baseAmount * Number(selectedEmpenho.current_percentage) / 100 * 100) / 100;
+    const deduction = selectedEmpenho.current_deduction_mode === 'valor_integral'
+      ? amount : Math.round(amount * (1 - Number(selectedEmpenho.current_percentage) / 100) * 100) / 100;
+    const { data: payment, error: insertError } = await supabase.from('payment_entries').insert({
+      empenho_id: selectedEmpenho.empenho_id,
+      request_date: requestDate,
+      description: paymentDescription.trim(),
+      requested_amount: amount,
+      status: 'solicitado',
+      rule_id: selectedEmpenho.rule_id,
+      percentage_snapshot: selectedEmpenho.current_percentage,
+      calculation_base_snapshot: selectedEmpenho.current_calculation_base,
+      deduction_mode_snapshot: selectedEmpenho.current_deduction_mode,
+      percentage_amount_snapshot: pctAmount,
+      balance_deduction_snapshot: deduction,
+      calculation_base_amount_snapshot: baseAmount,
+      paid_amount: 0
+    }).select('id').single();
+    if (insertError) {
+      setFormError('Não foi possível registrar a solicitação: ' + insertError.message); setSaving(false); return;
+    }
+    let uploadError = '';
+    if (attachment) {
+      const safeName = attachment.name.normalize('NFKD').replace(/[^a-zA-Z0-9._-]/g, '_');
+      const path = organization.id + '/' + selectedEmpenho.empenho_id + '/' + payment.id + '/' + crypto.randomUUID() + '-' + safeName;
+      const { error: storageError } = await supabase.storage.from('dcp-payment-attachments').upload(path, attachment, { contentType: attachment.type, upsert: false });
+      if (storageError) uploadError = storageError.message;
+      else {
+        const { error: metadataError } = await supabase.from('payment_attachments').insert({
+          payment_entry_id: payment.id, storage_path: path, original_filename: attachment.name,
+          content_type: attachment.type, size_bytes: attachment.size
+        });
+        if (metadataError) uploadError = metadataError.message;
+      }
+    }
+    setShowPaymentForm(false); setPaymentDescription(''); setRequestAmount(''); setAttachment(null);
+    setFormMessage(uploadError ? 'Solicitação registrada, mas houve erro no anexo: ' + uploadError : 'Solicitação registrada com sucesso. O saldo só será abatido após a confirmação do pagamento.');
+    await loadData(); setSaving(false);
+  }
+
+  async function confirmPaid(entry) {
+    if (!window.confirm('Confirmar que este pagamento foi efetivamente realizado? O saldo será atualizado.')) return;
+    const { error: updateError } = await supabase.from('payment_entries').update({
+      status: 'pago', paid_date: new Date().toISOString().slice(0,10), paid_amount: entry.requested_amount
+    }).eq('id', entry.id);
+    if (updateError) setError(updateError.message);
+    else { setFormMessage('Pagamento confirmado e histórico preservado.'); await loadData(); }
+  }
+
+  async function openAttachment(item) {
+    const { data, error: urlError } = await supabase.storage.from('dcp-payment-attachments').createSignedUrl(item.storage_path, 60);
+    if (urlError) setError(urlError.message);
+    else window.open(data.signedUrl, '_blank', 'noopener,noreferrer');
+  }
+
+  const totalOriginal = balances.reduce((sum, item) => sum + Number(item.original_amount || 0), 0);
+  const totalBalance = balances.reduce((sum, item) => sum + Number(item.operational_balance || 0), 0);
+  const totalPaid = balances.reduce((sum, item) => sum + Number(item.confirmed_paid_amount || 0), 0);
+  const totalPending = balances.reduce((sum, item) => sum + Number(item.pending_amount || 0), 0);
+
+  return <>
+    <div className="page-heading"><div><span className="eyebrow">ÁREA DO ÓRGÃO</span><h2>{organization.name}</h2><p>Empenhos, solicitações, pagamentos e documentos deste órgão.</p></div><button className="primary-btn" onClick={() => { setFormError(''); setShowEmpenhoForm(true); }}><Plus size={17}/> Novo empenho</button></div>
+    <div className="org-details-strip"><div><span>Nome de exibição</span><strong>{organization.short_name || '—'}</strong></div><div><span>Esfera</span><strong>{organization.government_level || 'Não informada'}</strong></div><div><span>Status</span><strong className="status-active">Ativo</strong></div></div>
+    {formMessage && <div className="alert success">{formMessage}</div>}
+    {error && <div className="alert error">{error} <button className="text-button" onClick={loadData}>Tentar novamente</button></div>}
+    <div className="stats-grid detail-stats">
+      <Stat icon={<FileText size={19}/>} label="Empenhos" value={String(balances.length).padStart(2,'0')} note="Vinculados a este órgão"/>
+      <Stat icon={<Wallet size={19}/>} label="Valor original" value={money(totalOriginal)} note="Soma dos empenhos"/>
+      <Stat icon={<CircleDollarSign size={19}/>} label="Saldo operacional" value={money(totalBalance)} note="Saldo atual dos empenhos"/>
+      <Stat icon={<CheckCircle2 size={19}/>} label="Pagamentos confirmados" value={money(totalPaid)} note={money(totalPending) + ' em solicitações pendentes'}/>
+    </div>
+    <section className="section-card detail-section">
+      <div className="section-head"><div><h3>Empenhos deste órgão</h3><p>Cada empenho mantém seu próprio percentual, saldo e histórico.</p></div><button className="secondary-btn" onClick={loadData}><RefreshCw size={15}/> Atualizar</button></div>
+      {busy ? <div className="inline-loading"><div className="spinner"/> Carregando empenhos…</div> : balances.length ? <div className="table-scroll"><table className="data-table"><thead><tr><th>Empenho</th><th>Valor original</th><th>Regra vigente</th><th>Utilizado</th><th>Saldo operacional</th><th></th></tr></thead><tbody>{balances.map(item=><tr key={item.empenho_id}><td><strong>{item.number}</strong><small>{item.description}</small></td><td>{money(item.original_amount)}</td><td><strong>{Number(item.current_percentage || 0)}%</strong><small>{item.current_calculation_base === 'valor_empenho' ? 'Base: empenho' : 'Base: pedido'} · {item.current_deduction_mode === 'valor_integral' ? 'Abate integral' : 'Abate líquido'}</small></td><td>{money(item.used_balance)}</td><td><strong className="balance-value">{money(item.operational_balance)}</strong><small>{item.pending_count} solicitações pendentes</small></td><td><button className="secondary-btn compact" onClick={()=>{setSelectedEmpenho(item);setFormError('');setShowPaymentForm(true);}}>Lançar pagamento</button></td></tr>)}</tbody></table></div> : <div className="empty-state"><div className="empty-icon"><FileText size={24}/></div><h3>Nenhum empenho cadastrado</h3><p>Cadastre o primeiro empenho para começar a registrar solicitações e acompanhar o saldo deste órgão.</p><button className="primary-btn" onClick={()=>setShowEmpenhoForm(true)}><Plus size={16}/> Cadastrar empenho</button></div>}
+    </section>
+    <section className="section-card detail-section">
+      <div className="section-head"><div><h3>Histórico de solicitações e pagamentos</h3><p>Os registros anteriores preservam os parâmetros utilizados no lançamento.</p></div><span className="count-pill">{entries.length} registros</span></div>
+      {entries.length ? <div className="table-scroll"><table className="data-table"><thead><tr><th>Solicitação</th><th>Empenho</th><th>Valor</th><th>Taxa salva</th><th>Situação</th><th>Documentos</th><th></th></tr></thead><tbody>{entries.map(entry=>{const linked=balances.find(b=>b.empenho_id===entry.empenho_id);return <tr key={entry.id}><td><strong>{new Date(entry.request_date+'T12:00:00').toLocaleDateString('pt-BR')}</strong><small>{entry.description}</small></td><td>{linked?.number || '—'}</td><td>{money(entry.requested_amount)}</td><td>{entry.percentage_snapshot}%<small>{money(entry.percentage_amount_snapshot)} calculados</small></td><td><span className={'status-pill '+(entry.status==='pago'?'paid':entry.status==='cancelado'?'cancelled':'pending')}>{entry.status==='pago'?'Pago':entry.status==='cancelado'?'Cancelado':'Solicitado'}</span>{entry.paid_date&&<small>Pago em {new Date(entry.paid_date+'T12:00:00').toLocaleDateString('pt-BR')}</small>}</td><td>{(entry.payment_attachments||[]).map(a=><button key={a.id} className="file-link" onClick={()=>openAttachment(a)}><Paperclip size={13}/>{a.original_filename}</button>)}</td><td>{entry.status==='solicitado'&&<button className="secondary-btn compact" onClick={()=>confirmPaid(entry)}>Confirmar pagamento</button>}</td></tr>})}</tbody></table></div> : <div className="empty-inline"><Clock3 size={18}/><span>As solicitações registradas aparecerão aqui.</span></div>}
+    </section>
+    {showEmpenhoForm && <div className="modal-backdrop" role="presentation" onMouseDown={e=>{if(e.target===e.currentTarget)setShowEmpenhoForm(false);}}><form className="modal-card wide-modal" onSubmit={createEmpenho}><div className="modal-head"><div><span className="eyebrow">NOVO REGISTRO</span><h2>Cadastrar empenho</h2><p>O empenho e sua regra inicial serão salvos juntos.</p></div><button type="button" className="icon-btn" onClick={()=>setShowEmpenhoForm(false)}><X size={19}/></button></div><div className="form-grid"><label>Número do empenho<input value={number} onChange={e=>setNumber(e.target.value)} required maxLength={80} placeholder="Ex.: 2026NE000123"/></label><label>Data do empenho<input type="date" value={issuedOn} onChange={e=>setIssuedOn(e.target.value}/></label></div><label>Descrição<input value={description} onChange={e=>setDescription(e.target.value)} required maxLength={250} placeholder="Descrição ou objeto do empenho"/></label><label>Valor original (R$)<input type="number" min="0.01" step="0.01" value={originalAmount} onChange={e=>setOriginalAmount(e.target.value)} required placeholder="10000,00"/></label><div className="rule-panel"><div><strong>Regra financeira inicial</strong><p>Esta configuração fica registrada no histórico do empenho.</p></div><label>Percentual (%)<input type="number" min="0" max="100" step="0.01" value={percentage} onChange={e=>setPercentage(e.target.value)} required/></label><label>Base de cálculo<select value={calculationBase} onChange={e=>setCalculationBase(e.target.value)}><option value="valor_empenho">Valor total do empenho</option><option value="valor_pedido">Cada pedido solicitado</option></select></label><label>Abatimento do saldo<select value={deductionMode} onChange={e=>setDeductionMode(e.target.value)}><option value="valor_integral">Valor integral do pedido</option><option value="valor_liquido">Valor líquido após percentual</option></select></label></div>{formError&&<div className="alert error">{formError}</div>}<div className="modal-actions"><button type="button" className="secondary-btn" onClick={()=>setShowEmpenhoForm(false)}>Cancelar</button><button className="primary-btn" disabled={saving}>{saving?'Salvando…':'Salvar empenho'}</button></div></form></div>}
+    {showPaymentForm && selectedEmpenho && <div className="modal-backdrop" role="presentation" onMouseDown={e=>{if(e.target===e.currentTarget)setShowPaymentForm(false);}}><form className="modal-card wide-modal" onSubmit={createPayment}><div className="modal-head"><div><span className="eyebrow">LANÇAMENTO FINANCEIRO</span><h2>Solicitar pagamento</h2><p>Empenho {selectedEmpenho.number} · saldo atual {money(selectedEmpenho.operational_balance)}</p></div><button type="button" className="icon-btn" onClick={()=>setShowPaymentForm(false)}><X size={19}/></button></div><div className="form-grid"><label>Data da solicitação<input type="date" value={requestDate} onChange={e=>setRequestDate(e.target.value)} required/></label><label>Valor solicitado (R$)<input type="number" min="0.01" step="0.01" value={requestAmount} onChange={e=>setRequestAmount(e.target.value)} required placeholder="1000,00"/></label></div><label>Descrição do pagamento<input value={paymentDescription} onChange={e=>setPaymentDescription(e.target.value)} required maxLength={250} placeholder="Descreva o pagamento solicitado"/></label><div className="rule-summary"><span>Regra vigente</span><strong>{selectedEmpenho.current_percentage}% · {selectedEmpenho.current_calculation_base==='valor_empenho'?'base no empenho':'base no pedido'} · {selectedEmpenho.current_deduction_mode==='valor_integral'?'abatimento integral':'abatimento líquido'}</strong><small>O registro guardará uma cópia desta regra. Alterações futuras não modificam este lançamento.</small></div><label className="upload-field"><span><UploadCloud size={18}/> Anexar comprovante ou documento (PDF/JPG/PNG/WEBP, até 10 MB)</span><input type="file" accept="application/pdf,image/jpeg,image/png,image/webp" onChange={e=>setAttachment(e.target.files?.[0]||null)}/>{attachment&&<small>Arquivo selecionado: {attachment.name}</small>}</label>{formError&&<div className="alert error">{formError}</div>}<div className="modal-actions"><button type="button" className="secondary-btn" onClick={()=>setShowPaymentForm(false)}>Cancelar</button><button className="primary-btn" disabled={saving}>{saving?'Salvando…':'Registrar solicitação'}</button></div></form></div>}
+  </>;
 }
