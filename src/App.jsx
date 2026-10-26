@@ -43,10 +43,10 @@ function SetupNotice() {
         <div className="brand-mark"><Building2 size={26} /></div>
         <span className="eyebrow">CONFIGURAÇÃO INICIAL</span>
         <h1>O DCP está pronto para receber a conexão.</h1>
-        <p>Configure as variáveis de ambiente do Supabase para habilitar o login e os dados reais.</p>
+        <p>A conexão padrão com o projeto Supabase já está definida. Publique a versão mais recente para habilitar o login e os dados reais.</p>
         <div className="env-list">
           <code>VITE_SUPABASE_URL</code>
-          <code>VITE_SUPABASE_ANON_KEY</code>
+          <code>VITE_SUPABASE_PUBLISHABLE_KEY</code>
         </div>
         <p className="muted">Crie um arquivo <code>.env.local</code> na raiz do projeto. Nunca coloque a chave <code>service_role</code> no frontend.</p>
       </div>
