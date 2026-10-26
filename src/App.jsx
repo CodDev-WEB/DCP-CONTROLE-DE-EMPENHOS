@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   Activity, Building2, CalendarDays, CheckCircle2, ChevronRight, CircleDollarSign,
   Clock3, FileText, LayoutDashboard, LogOut, Menu, Paperclip, Plus, RefreshCw,
-  Search, ShieldCheck, Wallet, X, UploadCloud
+  Search, ShieldCheck, Wallet, X, Upload
 } from 'lucide-react';
 import { isSupabaseConfigured, supabase } from './lib/supabase.js';
 
@@ -451,7 +451,7 @@ function OrgDetail({ organization }) {
       {entryType==='pedido' ? <><label>Acréscimo aplicado (%)<input type="number" min="0" max="100" step="0.01" value={markupPercentage} onChange={e=>setMarkupPercentage(e.target.value)} required/></label><div className="rule-summary"><span>Prévia da nota fiscal</span><strong>{money(Number(requestAmount||0)*(1+Number(markupPercentage||0)/100))}</strong><small>{money(Number(requestAmount||0))} de pedido + {money(Number(requestAmount||0)*Number(markupPercentage||0)/100)} de acréscimo. Esse total será abatido/comprometido no empenho ao registrar o pedido.</small>{Number(requestAmount||0)*(1+Number(markupPercentage||0)/100)>Number(selectedEmpenho.operational_balance||0)&&<div className="alert error">Atenção: este lançamento ultrapassa o saldo disponível e deixará o empenho negativo em {money(Number(requestAmount||0)*(1+Number(markupPercentage||0)/100)-Number(selectedEmpenho.operational_balance||0))}.</div>}</div></> :
         <label>Vincular a pedido existente (opcional)<select value={relatedOrderId} onChange={e=>setRelatedOrderId(e.target.value)}><option value="">Pagamento independente — abater este valor do empenho</option>{entries.filter(e=>e.entry_type==='pedido' && e.empenho_id===selectedEmpenho.empenho_id && e.status!=='cancelado').map(e=><option key={e.id} value={e.id}>{e.description} — NF {money(e.invoice_amount||e.requested_amount)}</option>)}</select><small>Se vinculado a um pedido já registrado, o pagamento será relacionado ao pedido e não abaterá o empenho uma segunda vez.</small></label>}
       <label>Descrição<input value={paymentDescription} onChange={e=>setPaymentDescription(e.target.value)} required maxLength={250} placeholder={entryType==='pedido'?'Ex.: Pedido recebido do órgão / objeto':'Ex.: Pagamento realizado pelo órgão / referência'}/></label>
-      <label className="upload-field"><span><UploadCloud size={18}/> Anexar documento (PDF/JPG/PNG/WEBP, até 10 MB)</span><input type="file" accept="application/pdf,image/jpeg,image/png,image/webp" onChange={e=>setAttachment(e.target.files?.[0]||null)}/>{attachment&&<small>Arquivo selecionado: {attachment.name}</small>}</label>
+      <label className="upload-field"><span><Upload size={18}/> Anexar documento (PDF/JPG/PNG/WEBP, até 10 MB)</span><input type="file" accept="application/pdf,image/jpeg,image/png,image/webp" onChange={e=>setAttachment(e.target.files?.[0]||null)}/>{attachment&&<small>Arquivo selecionado: {attachment.name}</small>}</label>
       {formError&&<div className="alert error">{formError}</div>}<div className="modal-actions"><button type="button" className="secondary-btn" onClick={()=>setShowPaymentForm(false)}>Cancelar</button><button className="primary-btn" disabled={saving}>{saving?'Salvando…':entryType==='pedido'?'Registrar pedido e calcular NF':'Registrar pagamento'}</button></div>
     </form></div>}
   </>;
