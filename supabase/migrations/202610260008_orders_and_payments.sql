@@ -77,7 +77,7 @@ select
   l.original_amount, l.rule_id, l.current_percentage, l.current_calculation_base,
   l.current_deduction_mode, l.rule_effective_from, l.initial_operational_limit,
   coalesce(p.used_balance, 0)::numeric(14,2) as used_balance,
-  greatest(l.initial_operational_limit - coalesce(p.used_balance, 0), 0)::numeric(14,2) as operational_balance,
+  (l.initial_operational_limit - coalesce(p.used_balance, 0))::numeric(14,2) as operational_balance,
   coalesce(p.paid_amount, 0)::numeric(14,2) as confirmed_paid_amount,
   coalesce(p.pending_count, 0)::integer as pending_count,
   coalesce(p.pending_amount, 0)::numeric(14,2) as pending_amount
