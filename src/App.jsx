@@ -281,6 +281,9 @@ function OrgDetail({ organization }) {
     }
     const amount = Math.round((normalizedItems.reduce((sum, i) => sum + i.amount, 0) + Number.EPSILON) * 100) / 100;
     if (!Number.isFinite(amount) || amount <= 0) { setFormError('A soma dos itens precisa ser maior que zero.'); setSaving(false); return; }
+    const { data: existingEmpenho, error: duplicateCheckError } = await supabase.from('empenhos').select('id').eq('organization_id', organization.id).eq('number', number.trim()).maybeSingle();
+    if (duplicateCheckError) { setFormError('Não foi possível verificar se o número do empenho já existe: ' + duplicateCheckError.message); setSaving(false); return; }
+    if (existingEmpenho) { setFormError('Este número de empenho já está cadastrado neste órgão. O registro existente foi preservado; atualize a lista e use Alterar ou cadastre os itens nele, sem criar outro empenho.'); setSaving(false); await loadData(); return; }
     const { error: rpcError } = await supabase.rpc('create_empenho_with_rule', {
       p_organization_id: organization.id,
       p_number: number.trim(),
