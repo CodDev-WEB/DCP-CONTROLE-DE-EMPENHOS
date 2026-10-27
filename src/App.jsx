@@ -16,7 +16,7 @@ function Login({ onLogin, busy, error }) {
   return (
     <main className="login-shell">
       <section className="login-brand">
-        <div className="login-logo-wrap"><img className="dcp-logo dcp-logo-login" src="/dcp-com%C3%A9rcio-logotipo-marca-d%27%C3%A1gua-varia%C3%A7%C3%A3o-horizontal-1.png" alt="DCP Comércio" /></div>
+        <div className="login-logo-wrap"><img className="dcp-logo dcp-logo-login" src="/dcp-logo.png" alt="DCP Comércio" /></div>
         <span className="eyebrow">GESTÃO • CONTROLE • HISTÓRICO</span>
         <h1>Controle claro.<br /><em>Decisões seguras.</em></h1>
         <p>Uma visão organizada dos órgãos, empenhos, solicitações e pagamentos da DCP.</p>
@@ -40,7 +40,7 @@ function SetupNotice() {
   return (
     <main className="setup-shell">
       <div className="setup-card">
-        <div className="login-logo-wrap"><img className="dcp-logo dcp-logo-login" src="/dcp-com%C3%A9rcio-logotipo-marca-d%27%C3%A1gua-varia%C3%A7%C3%A3o-horizontal-1.png" alt="DCP Comércio" /></div>
+        <div className="login-logo-wrap"><img className="dcp-logo dcp-logo-login" src="/dcp-logo.png" alt="DCP Comércio" /></div>
         <span className="eyebrow">CONFIGURAÇÃO INICIAL</span>
         <h1>O DCP está pronto para receber a conexão.</h1>
         <p>A conexão padrão com o projeto Supabase já está definida. Publique a versão mais recente para habilitar o login e os dados reais.</p>
@@ -153,7 +153,7 @@ export default function App() {
     <div className="app-shell">
       <aside className={`sidebar ${mobileNav ? 'sidebar-open' : ''}`}>
         <div className="sidebar-brand">
-          <img className="dcp-logo dcp-logo-sidebar" src="/dcp-com%C3%A9rcio-logotipo-marca-d%27%C3%A1gua-varia%C3%A7%C3%A3o-horizontal-1.png" alt="DCP Comércio" />
+          <img className="dcp-logo dcp-logo-sidebar" src="/dcp-logo.png" alt="DCP Comércio" />
           <div className="sidebar-brand-copy"><strong>DCP</strong><span>CONTROLE DE EMPRESAS</span></div>
           <button className="icon-btn mobile-close" onClick={() => setMobileNav(false)} aria-label="Fechar menu"><X size={18} /></button>
         </div>
