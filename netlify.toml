@@ -1,0 +1,13 @@
+# Netlify configuration for the Vite + React single-page app.
+[build]
+  command = "npm run build"
+  publish = "dist"
+
+# React SPA fallback: client-side routes should resolve to index.html.
+[[redirects]]
+  from = "/*"
+  to = "/index.html"
+  status = 200
+
+[build.environment]
+  NODE_VERSION = "22"
