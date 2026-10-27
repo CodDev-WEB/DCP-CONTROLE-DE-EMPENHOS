@@ -446,7 +446,7 @@ function OrgDetail({ organization }) {
   async function deleteEmpenho(item) {
     const confirmation = window.prompt(
       'Digite EXCLUIR para apagar definitivamente o empenho ' + item.number +
-      '. Se houver lançamentos financeiros, o banco bloqueará a exclusão para preservar o histórico.'
+      '. Se houver qualquer lançamento financeiro vinculado, a exclusão será bloqueada para preservar o histórico.'
     );
     if (confirmation === null) return;
     if (confirmation.trim() !== 'EXCLUIR') {
@@ -458,13 +458,36 @@ function OrgDetail({ organization }) {
     setFormMessage('');
     setSaving(true);
     try {
+      // Preflight: identify the common reason why one empenho can be deleted
+      // while another cannot. Any financial entry, including cancelled entries,
+      // is retained as audit history and blocks physical deletion.
+      const { data: linkedEntries, error: entriesCheckError } = await supabase
+        .from('payment_entries')
+        .select('id,status,entry_type,description')
+        .eq('empenho_id', item.empenho_id)
+        .limit(1);
+
+      if (entriesCheckError) {
+        throw new Error(
+          'Não foi possível verificar os lançamentos vinculados a este empenho: ' +
+          entriesCheckError.message + '. Nenhum registro foi excluído.'
+        );
+      }
+      if (linkedEntries && linkedEntries.length > 0) {
+        throw new Error(
+          'Este empenho não pode ser excluído porque possui lançamento financeiro vinculado' +
+          (linkedEntries[0].description ? ': "' + linkedEntries[0].description + '"' : '') +
+          '. Para preservar a auditoria, use Inativar ou Arquivar. Nenhum dado foi apagado.'
+        );
+      }
+
       const { data: result, error: rpcError } = await supabase.rpc('delete_empenho_safely', {
         p_empenho_id: item.empenho_id
       });
       if (rpcError) {
         throw new Error(
-          'O Supabase recusou a exclusão (' + rpcError.code + '): ' + rpcError.message +
-          '. Confirme se a migração 202610270001_delete_empenho_safely.sql foi executada no SQL Editor do Supabase.'
+          'O Supabase recusou a exclusão (' + (rpcError.code || 'sem código') + '): ' + rpcError.message +
+          '. Se o erro mencionar regras históricas, aplique a migração 202610270003_fix_safe_empenho_delete.sql no SQL Editor do Supabase.'
         );
       }
       if (result?.success !== true) {
