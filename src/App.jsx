@@ -450,33 +450,24 @@ function OrgDetail({ organization }) {
     setFormMessage('');
     setSaving(true);
     try {
-      const { data: existing, error: checkError } = await supabase
-        .from('empenhos').select('id').eq('id', item.empenho_id).maybeSingle();
-      if (checkError) throw new Error('Não foi possível confirmar o empenho no banco: ' + checkError.message);
-      if (!existing) {
-        await loadData();
-        setFormMessage('O empenho já não existe no banco; a lista foi atualizada.');
-        return;
+      // A RPC executa a exclusão em uma única transação no banco.
+      const { data: result, error: rpcError } = await supabase.rpc('delete_empenho_safely', {
+        p_empenho_id: item.empenho_id
+      });
+      if (rpcError) {
+        throw new Error('O banco recusou a exclusão. Verifique se a migração 202610270001_delete_empenho_safely.sql foi aplicada. Detalhe: ' + rpcError.message);
       }
-
-      const { error: itemsError } = await supabase
-        .from('empenho_items').delete().eq('empenho_id', item.empenho_id);
-      if (itemsError) throw new Error('Não foi possível excluir os itens: ' + itemsError.message);
-
-      const { data: deletedRows, error: deleteError } = await supabase
-        .from('empenhos').delete().eq('id', item.empenho_id).select('id');
-      if (deleteError) throw new Error('Não foi possível excluir o empenho. Pode haver regras ou outros registros vinculados: ' + deleteError.message);
-      if (!deletedRows || deletedRows.length === 0) {
-        throw new Error('O banco não confirmou a exclusão do empenho. Verifique as permissões RLS e as dependências antes de tentar novamente.');
+      if (!result || result.success !== true) {
+        throw new Error(result?.message || 'O banco não confirmou a exclusão do empenho.');
       }
-
-      const { data: stillExists, error: verifyError } = await supabase
-        .from('empenhos').select('id').eq('id', item.empenho_id).maybeSingle();
-      if (verifyError) throw new Error('O empenho foi enviado para exclusão, mas não foi possível verificar o resultado: ' + verifyError.message);
-      if (stillExists) throw new Error('O banco ainda retorna este empenho após a exclusão. A lista não será marcada como concluída.');
 
       await loadData();
-      setFormMessage('Exclusão confirmada no banco. A lista foi atualizada.');
+      const { data: verification, error: verificationError } = await supabase
+        .from('empenhos').select('id').eq('id', item.empenho_id).maybeSingle();
+      if (verificationError) throw new Error('A exclusão foi executada, mas não foi possível verificar a lista: ' + verificationError.message);
+      if (verification) throw new Error('O empenho ainda aparece no banco após a exclusão. A operação não será marcada como concluída.');
+
+      setFormMessage('Exclusão confirmada no banco. Empenho e itens removidos; lista atualizada.');
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Falha inesperada ao excluir o empenho.');
       await loadData();
