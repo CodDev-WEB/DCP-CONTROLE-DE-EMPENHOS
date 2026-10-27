@@ -439,15 +439,50 @@ function OrgDetail({ organization }) {
   }
 
   async function deleteEmpenho(item) {
-    if (entries.some(entry => entry.empenho_id === item.empenho_id)) { setError('Este empenho possui lançamentos vinculados. Para preservar o histórico financeiro/fiscal, a exclusão definitiva está bloqueada. Use Inativar.'); return; }
+    if (entries.some(entry => entry.empenho_id === item.empenho_id)) {
+      setError('Este empenho possui lançamentos vinculados. Para preservar o histórico financeiro/fiscal, a exclusão definitiva está bloqueada. Use Inativar.');
+      return;
+    }
     const confirmation = window.prompt('Digite EXCLUIR para apagar definitivamente o empenho ' + item.number + ' e seus itens. Esta ação não pode ser desfeita:');
     if (confirmation !== 'EXCLUIR') return;
+
     setError('');
-    const { error: itemsError } = await supabase.from('empenho_items').delete().eq('empenho_id', item.empenho_id);
-    if (itemsError) { setError('Não foi possível excluir os itens: ' + itemsError.message); return; }
-    const { error: deleteError } = await supabase.from('empenhos').delete().eq('id', item.empenho_id);
-    if (deleteError) { setError('Não foi possível excluir o empenho. Pode haver regras ou outros registros vinculados: ' + deleteError.message); return; }
-    setFormMessage('Empenho e itens excluídos.'); await loadData();
+    setFormMessage('');
+    setSaving(true);
+    try {
+      const { data: existing, error: checkError } = await supabase
+        .from('empenhos').select('id').eq('id', item.empenho_id).maybeSingle();
+      if (checkError) throw new Error('Não foi possível confirmar o empenho no banco: ' + checkError.message);
+      if (!existing) {
+        await loadData();
+        setFormMessage('O empenho já não existe no banco; a lista foi atualizada.');
+        return;
+      }
+
+      const { error: itemsError } = await supabase
+        .from('empenho_items').delete().eq('empenho_id', item.empenho_id);
+      if (itemsError) throw new Error('Não foi possível excluir os itens: ' + itemsError.message);
+
+      const { data: deletedRows, error: deleteError } = await supabase
+        .from('empenhos').delete().eq('id', item.empenho_id).select('id');
+      if (deleteError) throw new Error('Não foi possível excluir o empenho. Pode haver regras ou outros registros vinculados: ' + deleteError.message);
+      if (!deletedRows || deletedRows.length === 0) {
+        throw new Error('O banco não confirmou a exclusão do empenho. Verifique as permissões RLS e as dependências antes de tentar novamente.');
+      }
+
+      const { data: stillExists, error: verifyError } = await supabase
+        .from('empenhos').select('id').eq('id', item.empenho_id).maybeSingle();
+      if (verifyError) throw new Error('O empenho foi enviado para exclusão, mas não foi possível verificar o resultado: ' + verifyError.message);
+      if (stillExists) throw new Error('O banco ainda retorna este empenho após a exclusão. A lista não será marcada como concluída.');
+
+      await loadData();
+      setFormMessage('Exclusão confirmada no banco. A lista foi atualizada.');
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Falha inesperada ao excluir o empenho.');
+      await loadData();
+    } finally {
+      setSaving(false);
+    }
   }
 
   async function cancelEmpenho(item) {
