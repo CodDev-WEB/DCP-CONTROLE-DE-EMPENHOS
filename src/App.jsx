@@ -113,7 +113,7 @@ export default function App() {
     setOverviewLoading(true);
     const [balanceResult, entryResult] = await Promise.all([
       supabase.from('empenho_balances').select('empenho_id,organization_id,original_amount,operational_balance,confirmed_paid_amount,pending_amount'),
-      supabase.from('payment_entries').select('organization_id,request_date,paid_date,status,paid_amount,entry_type,order_amount,invoice_amount,percentage_amount_snapshot')
+      supabase.from('payment_entries').select('empenho_id,request_date,paid_date,status,paid_amount,entry_type,order_amount,invoice_amount,percentage_amount_snapshot')
     ]);
     if (!balanceResult.error) {
       const rows = balanceResult.data || [];
@@ -123,11 +123,12 @@ export default function App() {
       const balance = scoped.reduce((sum, row) => sum + Number(row.operational_balance || 0), 0);
       const empenhos = new Set(scoped.map(row => row.empenho_id)).size;
       const month = new Date().toISOString().slice(0, 7);
-      const entries = (entryResult.data || []).filter(row => activeIds.has(row.organization_id));
+      const empenhoIds = new Set(scoped.map(row => row.empenho_id));
+      const entries = (entryResult.data || []).filter(row => empenhoIds.has(row.empenho_id));
       const paidMonth = entries.filter(row => row.status === 'pago' && (row.paid_date || row.request_date || '').slice(0, 7) === month)
         .reduce((sum, row) => sum + Number(row.paid_amount || 0), 0);
-      const profit = entries.filter(row => row.entry_type === 'pedido')
-        .reduce((sum, row) => sum + Number(row.percentage_amount_snapshot ?? (Number(row.invoice_amount || 0) - Number(row.order_amount || 0))), 0);
+      const orders = entries.filter(row => row.entry_type === 'pedido');
+      const profit = orders.reduce((sum, row) => sum + Number(row.percentage_amount_snapshot ?? (Number(row.invoice_amount || 0) - Number(row.order_amount || 0))), 0);
       setOverviewStats({ empenhos, original, balance, paidMonth, profit });
     }
     setOverviewLoading(false);
@@ -222,7 +223,7 @@ export default function App() {
                 <Stat icon={<Wallet size={19} />} label="Empenhos registrados" value={overviewLoading ? "…" : String(overviewStats.empenhos).padStart(2, "0")} note="Soma dos órgãos cadastrados" />
                 <Stat icon={<CircleDollarSign size={19} />} label="Valor total dos empenhos" value={overviewLoading ? "…" : money(overviewStats.original)} note="Valor original consolidado" />
                 <Stat icon={<Activity size={19} />} label="Pagamentos no mês" value={overviewLoading ? "…" : money(overviewStats.paidMonth)} note="Pagamentos com status confirmado" />
-                {isAdmin && <Stat icon={<CircleDollarSign size={19} />} label="Lucro sobre o total" value={overviewLoading ? "…" : money(overviewStats.profit || overviewStats.original * 0.2)} note={overviewStats.profit ? "Lucro calculado nos pedidos lançados" : "Estimativa de 20% sobre o valor total"} />}
+                {isAdmin && <Stat icon={<CircleDollarSign size={19} />} label="Lucro sobre o total" value={overviewLoading ? "…" : money(overviewStats.profit > 0 ? overviewStats.profit : overviewStats.original * 0.2)} note={overviewStats.profit > 0 ? "Lucro calculado nos pedidos lançados" : "Estimativa de 20% sobre o valor total"} />}
                 <Stat icon={<Wallet size={19} />} label="Saldo operacional" value={overviewLoading ? "…" : money(overviewStats.balance)} note="Saldo operacional consolidado" />
               </div>
               <section className="section-card">
