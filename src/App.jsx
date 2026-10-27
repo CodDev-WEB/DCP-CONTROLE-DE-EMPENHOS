@@ -71,6 +71,9 @@ export default function App() {
   const [orgShortName, setOrgShortName] = useState('');
   const [orgLevel, setOrgLevel] = useState('Federal');
   const [mobileNav, setMobileNav] = useState(false);
+  const [overviewStats, setOverviewStats] = useState({ empenhos: 0, original: 0, balance: 0, paidMonth: 0, profit: 0 });
+  const [overviewLoading, setOverviewLoading] = useState(false);
+  const isAdmin = session?.user?.app_metadata?.role === 'admin' || session?.user?.user_metadata?.role === 'admin' || session?.user?.app_metadata?.is_admin === true || session?.user?.user_metadata?.is_admin === true;
 
   useEffect(() => {
     if (!supabase) return;
@@ -104,6 +107,33 @@ export default function App() {
   }, [session]);
 
   useEffect(() => { loadOrganizations(); }, [loadOrganizations]);
+
+  const loadOverview = useCallback(async () => {
+    if (!supabase || !session) return;
+    setOverviewLoading(true);
+    const [balanceResult, entryResult] = await Promise.all([
+      supabase.from('empenho_balances').select('empenho_id,organization_id,original_amount,operational_balance,confirmed_paid_amount,pending_amount'),
+      supabase.from('payment_entries').select('organization_id,request_date,paid_date,status,paid_amount,entry_type,order_amount,invoice_amount,percentage_amount_snapshot')
+    ]);
+    if (!balanceResult.error) {
+      const rows = balanceResult.data || [];
+      const activeIds = new Set(orgs.map(org => org.id));
+      const scoped = rows.filter(row => activeIds.has(row.organization_id));
+      const original = scoped.reduce((sum, row) => sum + Number(row.original_amount || 0), 0);
+      const balance = scoped.reduce((sum, row) => sum + Number(row.operational_balance || 0), 0);
+      const empenhos = new Set(scoped.map(row => row.empenho_id)).size;
+      const month = new Date().toISOString().slice(0, 7);
+      const entries = (entryResult.data || []).filter(row => activeIds.has(row.organization_id));
+      const paidMonth = entries.filter(row => row.status === 'pago' && (row.paid_date || row.request_date || '').slice(0, 7) === month)
+        .reduce((sum, row) => sum + Number(row.paid_amount || 0), 0);
+      const profit = entries.filter(row => row.entry_type === 'pedido')
+        .reduce((sum, row) => sum + Number(row.percentage_amount_snapshot ?? (Number(row.invoice_amount || 0) - Number(row.order_amount || 0))), 0);
+      setOverviewStats({ empenhos, original, balance, paidMonth, profit });
+    }
+    setOverviewLoading(false);
+  }, [session, orgs]);
+
+  useEffect(() => { loadOverview(); }, [loadOverview]);
 
   const filteredOrgs = useMemo(() => orgs.filter(org =>
     [org.name, org.short_name, org.government_level].filter(Boolean).join(' ').toLowerCase().includes(search.toLowerCase())
@@ -189,9 +219,11 @@ export default function App() {
               <div className="welcome-row"><div><span className="eyebrow">ACOMPANHAMENTO FINANCEIRO</span><h2>Olá, vamos organizar a operação.</h2><p>Uma visão central dos órgãos, empenhos e pagamentos da DCP.</p></div><button className="primary-btn" onClick={() => setShowOrgForm(true)}><Plus size={17} /> Cadastrar órgão</button></div>
               <div className="stats-grid">
                 <Stat icon={<Building2 size={19} />} label="Órgãos cadastrados" value={String(orgs.length).padStart(2, '0')} note="Áreas de controle independentes" />
-                <Stat icon={<Wallet size={19} />} label="Empenhos ativos" value="—" note="Disponível após cadastrar empenhos" />
-                <Stat icon={<CircleDollarSign size={19} />} label="Saldo operacional" value="—" note="Calculado por empenho" />
-                <Stat icon={<Activity size={19} />} label="Pagamentos no mês" value="—" note="Solicitações e pagamentos confirmados" />
+                <Stat icon={<Wallet size={19} />} label="Empenhos registrados" value={overviewLoading ? "…" : String(overviewStats.empenhos).padStart(2, "0")} note="Soma dos órgãos cadastrados" />
+                <Stat icon={<CircleDollarSign size={19} />} label="Valor total dos empenhos" value={overviewLoading ? "…" : money(overviewStats.original)} note="Valor original consolidado" />
+                <Stat icon={<Activity size={19} />} label="Pagamentos no mês" value={overviewLoading ? "…" : money(overviewStats.paidMonth)} note="Pagamentos com status confirmado" />
+                {isAdmin && <Stat icon={<CircleDollarSign size={19} />} label="Lucro sobre o total" value={overviewLoading ? "…" : money(overviewStats.profit || overviewStats.original * 0.2)} note={overviewStats.profit ? "Lucro calculado nos pedidos lançados" : "Estimativa de 20% sobre o valor total"} />}
+                <Stat icon={<Wallet size={19} />} label="Saldo operacional" value={overviewLoading ? "…" : money(overviewStats.balance)} note="Saldo operacional consolidado" />
               </div>
               <section className="section-card">
                 <div className="section-head"><div><h3>Órgãos e batalhões</h3><p>Entre na área de cada órgão para acompanhar sua movimentação.</p></div><span className="count-pill">{orgs.length} cadastrados</span></div>
