@@ -565,6 +565,10 @@ function OrgDetail({ organization }) {
       setError('Este pagamento está vinculado a outro pedido. Exclua primeiro o pagamento dependente.');
       return;
     }
+    if (entries.some(candidate => candidate.related_order_id === entry.id)) {
+      setError('Este lançamento possui pagamentos vinculados. Exclua primeiro os pagamentos dependentes.');
+      return;
+    }
     const confirmation = window.prompt(
       'Excluir definitivamente o lançamento "' + label + '"? Os anexos vinculados também serão removidos.\n\nDigite EXCLUIR para confirmar.'
     );
@@ -575,18 +579,20 @@ function OrgDetail({ organization }) {
     }
     setSaving(true); setError(''); setFormMessage('');
     try {
-      // Remove stored files first; never leave inaccessible files behind.
       const attachments = entry.payment_attachments || [];
       const paths = attachments.map(file => file.storage_path).filter(Boolean);
-      if (paths.length) {
-        const { error: storageError } = await supabase.storage.from('dcp-payment-attachments').remove(paths);
-        if (storageError) throw new Error('Não foi possível remover os anexos do armazenamento: ' + storageError.message + '. O lançamento foi mantido.');
-      }
       const { data: result, error: deleteError } = await supabase.rpc('delete_payment_entry_safely', {
         p_payment_entry_id: entry.id
       });
       if (deleteError) throw new Error('O Supabase recusou a exclusão do lançamento: ' + deleteError.message + '. Confira se a migração 202610270004_delete_payment_entry_safely.sql foi aplicada.');
       if (result?.success !== true) throw new Error(result?.message || 'O banco não confirmou a exclusão do lançamento.');
+      // Remove physical files only after the database confirms the audited delete.
+      if (paths.length) {
+        const { error: storageError } = await supabase.storage.from('dcp-payment-attachments').remove(paths);
+        if (storageError) {
+          setFormMessage('Lançamento excluído e auditoria preservada, mas alguns arquivos anexos precisam de limpeza no Storage: ' + storageError.message);
+        }
+      }
       const { data: remaining, error: verifyError } = await supabase
         .from('payment_entries').select('id').eq('id', entry.id).maybeSingle();
       if (verifyError) throw new Error('Não foi possível confirmar a exclusão: ' + verifyError.message);
