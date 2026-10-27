@@ -253,6 +253,7 @@ function OrgDetail({ organization }) {
   const [attachment, setAttachment] = useState(null);
   const [monthFilter, setMonthFilter] = useState(new Date().toISOString().slice(0,7));
   const [editingEmpenhoId, setEditingEmpenhoId] = useState(null);
+  const [expandedEmpenhos, setExpandedEmpenhos] = useState(new Set());
 
   const loadData = useCallback(async () => {
     setBusy(true); setError('');
@@ -558,6 +559,36 @@ function OrgDetail({ organization }) {
     else { setFormMessage('Lançamento alterado e registrado na auditoria. Se houver NF-e emitida, faça a regularização fiscal correspondente fora do DCP.'); await loadData(); }
   }
 
+  async function deleteEntry(entry) {
+    const label = entry.description || (entry.entry_type === 'pedido' ? 'Pedido' : 'Pagamento');
+    const confirmation = window.prompt(
+      'Excluir definitivamente o lançamento "' + label + '"? Esta ação não pode ser desfeita.\n\nDigite EXCLUIR para confirmar.'
+    );
+    if (confirmation === null) return;
+    if (confirmation.trim() !== 'EXCLUIR') {
+      setError('Exclusão cancelada. Digite exatamente EXCLUIR para confirmar.');
+      return;
+    }
+    setSaving(true); setError(''); setFormMessage('');
+    try {
+      const { error: deleteError } = await supabase
+        .from('payment_entries')
+        .delete()
+        .eq('id', entry.id)
+        .eq('organization_id', organization.id);
+      if (deleteError) throw new Error('Não foi possível excluir o lançamento: ' + deleteError.message);
+      const { data: remaining, error: verifyError } = await supabase
+        .from('payment_entries').select('id').eq('id', entry.id).maybeSingle();
+      if (verifyError) throw new Error('Não foi possível confirmar a exclusão: ' + verifyError.message);
+      if (remaining) throw new Error('O banco ainda retorna este lançamento. Verifique as permissões RLS do Supabase.');
+      setFormMessage('Lançamento excluído definitivamente.');
+      await loadData();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Falha ao excluir o lançamento.');
+      await loadData();
+    } finally { setSaving(false); }
+  }
+
   async function cancelEntry(entry) {
     const reason = window.prompt('Motivo do cancelamento/inativação (o registro ficará no histórico):');
     if (reason === null) return;
@@ -606,16 +637,18 @@ function OrgDetail({ organization }) {
       {busy ? <div className="inline-loading"><div className="spinner"/> Carregando empenhos…</div> : visibleBalances.length ? <div className="empenho-card-list">{visibleBalances.map(item => {
         const relatedItems = itemBalances.filter(i => i.empenho_id === item.empenho_id);
         const relatedEntries = filteredEntries.filter(entry => entry.empenho_id === item.empenho_id);
-        return <article className="empenho-panel" key={item.empenho_id}>
-          <header className="empenho-panel-head"><div><span className="eyebrow">EMPENHO</span><h3>{item.number}</h3><p>{item.description}</p><span className={'status-pill ' + (item.is_active === false ? 'cancelled' : 'paid')}>{item.is_active === false ? 'Inativo' : 'Ativo'}</span></div>
-          <div className="empenho-panel-actions">{archiveTab === 'arquivo' ? <button className="secondary-btn compact" onClick={()=>archiveEmpenho(item)}>Restaurar aos ativos</button> : <><button className="secondary-btn compact" onClick={()=>openEntryForm(item)} disabled={item.is_active === false}>Novo lançamento</button><button className="secondary-btn compact" onClick={()=>editEmpenho(item)}>Alterar</button><button className="secondary-btn compact" onClick={()=>cancelEmpenho(item)} disabled={!item.is_active}>Inativar</button><button className="secondary-btn compact" onClick={()=>archiveEmpenho(item)}>Arquivar</button><button className="danger-btn compact" onClick={()=>deleteEmpenho(item)}>Excluir</button></>}</div></header>
-          <div className="empenho-metrics"><div><span>Valor total</span><strong>{money(item.original_amount)}</strong></div><div><span>Valor utilizado</span><strong>{money(item.used_balance)}</strong></div><div><span>Saldo disponível</span><strong>{money(item.operational_balance)}</strong></div><div><span>Pendências</span><strong>{item.pending_count || 0}</strong></div></div>
-          <section className="empenho-subsection"><div className="subsection-heading"><h4>Itens deste empenho</h4><span>{relatedItems.length} item(ns)</span></div>
+        const isExpanded = expandedEmpenhos.has(item.empenho_id);
+        return <article className={'empenho-panel ' + (isExpanded ? 'is-expanded' : 'is-compact')} key={item.empenho_id}>
+          <header className="empenho-panel-head"><div className="empenho-card-identity"><span className="eyebrow">EMPENHO</span><h3>{item.number}</h3><p>{item.description}</p><span className={'status-pill ' + (item.is_active === false ? 'cancelled' : 'paid')}>{item.is_active === false ? 'Inativo' : 'Ativo'}</span></div>
+          <div className="empenho-panel-actions">{archiveTab === 'arquivo' ? <button className="secondary-btn compact" onClick={()=>archiveEmpenho(item)}>Restaurar</button> : <><button className="secondary-btn compact" onClick={()=>openEntryForm(item)} disabled={item.is_active === false}>+ Lançamento</button><button className="secondary-btn compact" onClick={()=>editEmpenho(item)}>Alterar</button><button className="secondary-btn compact" onClick={()=>archiveEmpenho(item)}>Arquivar</button><button className="danger-btn compact" onClick={()=>deleteEmpenho(item)}>Excluir empenho</button></>}</div></header>
+          <div className="empenho-metrics"><div><span>Valor total</span><strong>{money(item.original_amount)}</strong></div><div><span>Utilizado</span><strong>{money(item.used_balance)}</strong></div><div><span>Saldo disponível</span><strong>{money(item.operational_balance)}</strong></div><div><span>Pendências</span><strong>{item.pending_count || 0}</strong></div></div>
+          <button type="button" className="empenho-details-toggle" aria-expanded={isExpanded} onClick={()=>setExpandedEmpenhos(current=>{const next=new Set(current); if(next.has(item.empenho_id)) next.delete(item.empenho_id); else next.add(item.empenho_id); return next;})}>{isExpanded ? 'Ocultar detalhes' : 'Ver itens e lançamentos'} <ChevronRight size={16}/><span>{relatedItems.length} itens · {relatedEntries.length} lançamentos</span></button>
+          {isExpanded && <div className="empenho-expanded-content"><section className="empenho-subsection"><div className="subsection-heading"><h4>Itens deste empenho</h4><span>{relatedItems.length} item(ns)</span></div>
           {relatedItems.length ? <div className="empenho-item-list">{relatedItems.map(i=><div className="empenho-item-card" key={i.empenho_item_id}><div><strong>{i.item_number ? 'Item ' + i.item_number + ' · ' : ''}{i.item_description}</strong><p>{i.purchase_code ? 'Código de compra ' + i.purchase_code + ' · ' : ''}{i.quantity != null ? 'Quantidade: ' + new Intl.NumberFormat('pt-BR',{maximumFractionDigits:4}).format(Number(i.quantity)) + (i.unit ? ' ' + i.unit : '') + ' · ' : ''}{i.unit_price != null ? 'Unitário: ' + money(i.unit_price) + ' · ' : ''}Desconto: {i.discount_percentage}%</p></div><div className="item-values"><span>Total <strong>{money(i.original_amount)}</strong></span><span>Utilizado <strong>{money(i.used_balance)}</strong></span><span>Saldo <strong>{money(i.operational_balance)}</strong></span><button className="secondary-btn compact" onClick={()=>openEntryForm(item,i.empenho_item_id)} disabled={item.is_active === false}>Lançar neste item</button></div></div>)}</div> : <p className="muted">Nenhum item vinculado a este empenho.</p>}
           </section>
           <section className="empenho-subsection"><div className="subsection-heading"><h4>Lançamentos deste empenho</h4><span>{relatedEntries.length} registro(s)</span></div>
-          {relatedEntries.length ? <div className="empenho-entry-list">{relatedEntries.map(entry=><div className="empenho-entry-card" key={entry.id}><div className="entry-main"><strong>{entry.description}</strong><p>{new Date(entry.request_date+'T12:00:00').toLocaleDateString('pt-BR')} · {entry.entry_type==='pedido'?'Pedido':'Pagamento'} · {entry.entry_type==='pedido'?'Pedido: '+money(entry.order_amount)+' · NF: '+money(entry.invoice_amount):'Valor: '+money(entry.paid_amount)}</p><small>{relatedItems.find(i=>i.empenho_item_id===entry.empenho_item_id)?.item_description || 'Item não identificado'}{entry.entry_type==='pedido'?' · Acréscimo '+entry.markup_percentage+'%':''}</small>{(entry.payment_attachments||[]).map(a=><button key={a.id} className="file-link" onClick={()=>openAttachment(a)}><Paperclip size={13}/>{a.original_filename}</button>)}</div><div className="entry-actions"><span className={'status-pill '+(entry.status==='cancelado'?'cancelled':entry.status==='pago'?'paid':'pending')}>{entry.status==='cancelado'?'Cancelado':entry.status==='pago'?'Pago':entry.entry_type==='pedido'?'Pedido registrado':'Solicitado'}</span>{entry.status !== 'cancelado' ? <><button className="secondary-btn compact" onClick={()=>editEntry(entry)}>Alterar</button><button className="secondary-btn compact" onClick={()=>cancelEntry(entry)}>Cancelar</button></> : <small className="muted">Registro preservado</small>}</div></div>)}</div> : <p className="muted">Nenhum lançamento vinculado a este empenho.</p>}
-          </section>
+          {relatedEntries.length ? <div className="empenho-entry-list">{relatedEntries.map(entry=><div className="empenho-entry-card" key={entry.id}><div className="entry-main"><strong>{entry.description}</strong><p>{new Date(entry.request_date+'T12:00:00').toLocaleDateString('pt-BR')} · {entry.entry_type==='pedido'?'Pedido':'Pagamento'} · {entry.entry_type==='pedido'?'Pedido: '+money(entry.order_amount)+' · NF: '+money(entry.invoice_amount):'Valor: '+money(entry.paid_amount)}</p><small>{relatedItems.find(i=>i.empenho_item_id===entry.empenho_item_id)?.item_description || 'Item não identificado'}{entry.entry_type==='pedido'?' · Acréscimo '+entry.markup_percentage+'%':''}</small>{(entry.payment_attachments||[]).map(a=><button key={a.id} className="file-link" onClick={()=>openAttachment(a)}><Paperclip size={13}/>{a.original_filename}</button>)}</div><div className="entry-actions"><span className={'status-pill '+(entry.status==='cancelado'?'cancelled':entry.status==='pago'?'paid':'pending')}>{entry.status==='cancelado'?'Cancelado':entry.status==='pago'?'Pago':entry.entry_type==='pedido'?'Pedido registrado':'Solicitado'}</span><button className="secondary-btn compact" onClick={()=>editEntry(entry)}>Alterar</button>{entry.status !== 'cancelado' && <button className="secondary-btn compact" onClick={()=>cancelEntry(entry)}>Cancelar</button>}<button className="danger-btn compact" onClick={()=>deleteEntry(entry)} disabled={saving}>Excluir lançamento</button></div></div>)}</div> : <p className="muted">Nenhum lançamento vinculado a este empenho.</p>}
+          </section></div>}
         </article>;
       })}</div>  : <div className="empty-state"><div className="empty-icon"><FileText size={24}/></div><h3>{archiveTab === 'arquivo' ? 'Nenhum empenho arquivado' : 'Nenhum empenho ativo'}</h3><p>{archiveTab === 'arquivo' ? 'Os empenhos arquivados aparecerão aqui para consulta.' : 'Cadastre um empenho ou restaure um registro do arquivo.'}</p>{archiveTab === 'ativos' && <button className="primary-btn" onClick={()=>setShowEmpenhoForm(true)}><Plus size={16}/> Cadastrar empenho</button>}</div>}
     </section>
