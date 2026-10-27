@@ -221,6 +221,8 @@ function Stat({ icon, label, value, note }) {
 
 function OrgDetail({ organization }) {
   const [balances, setBalances] = useState([]);
+  const [archivedIds, setArchivedIds] = useState(new Set());
+  const [archiveTab, setArchiveTab] = useState('ativos');
   const [itemBalances, setItemBalances] = useState([]);
   const [entries, setEntries] = useState([]);
   const [busy, setBusy] = useState(true);
@@ -254,13 +256,16 @@ function OrgDetail({ organization }) {
 
   const loadData = useCallback(async () => {
     setBusy(true); setError('');
-    const [balanceResult, itemResult, entryResult] = await Promise.all([
+    const [balanceResult, itemResult, entryResult, archiveResult] = await Promise.all([
       supabase.from('empenho_balances').select('*').eq('organization_id', organization.id).order('number'),
       supabase.from('empenho_item_balances').select('*').eq('organization_id', organization.id).order('empenho_number').order('item_description'),
-      supabase.from('payment_entries').select('id,empenho_id,empenho_item_id,request_date,paid_date,description,requested_amount,status,paid_amount,percentage_snapshot,percentage_amount_snapshot,balance_deduction_snapshot,entry_type,order_amount,markup_percentage,invoice_amount,related_order_id,created_at,payment_attachments(id,original_filename,storage_path)').order('request_date', { ascending: false })
+      supabase.from('payment_entries').select('id,empenho_id,empenho_item_id,request_date,paid_date,description,requested_amount,status,paid_amount,percentage_snapshot,percentage_amount_snapshot,balance_deduction_snapshot,entry_type,order_amount,markup_percentage,invoice_amount,related_order_id,created_at,payment_attachments(id,original_filename,storage_path)').order('request_date', { ascending: false }),
+      supabase.from('empenhos').select('id,archived_at').eq('organization_id', organization.id)
     ]);
     if (balanceResult.error) setError(balanceResult.error.message);
     else setBalances(balanceResult.data || []);
+    if (archiveResult.error) setError(current => current ? current + ' | ' + archiveResult.error.message : archiveResult.error.message);
+    else setArchivedIds(new Set((archiveResult.data || []).filter(x => x.archived_at).map(x => x.id)));
     if (itemResult.error) setError(current => current ? current + ' | ' + itemResult.error.message : itemResult.error.message);
     else setItemBalances(itemResult.data || []);
     if (entryResult.error) setError(current => current ? current + ' | ' + entryResult.error.message : entryResult.error.message);
@@ -440,10 +445,10 @@ function OrgDetail({ organization }) {
 
   async function deleteEmpenho(item) {
     if (entries.some(entry => entry.empenho_id === item.empenho_id)) {
-      setError('Este empenho possui lançamentos vinculados. Para preservar o histórico financeiro/fiscal, a exclusão definitiva está bloqueada. Use Inativar.');
+      setError('Este empenho possui lançamentos financeiros vinculados e não pode ser excluído definitivamente. Use Arquivar para preservar o histórico e removê-lo dos ativos.');
       return;
     }
-    const confirmation = window.prompt('Digite EXCLUIR para apagar definitivamente o empenho ' + item.number + ' e seus itens. Esta ação não pode ser desfeita:');
+    const confirmation = window.prompt('Digite EXCLUIR para apagar definitivamente o empenho ' + item.number + '. Esta ação não pode ser desfeita:');
     if (confirmation !== 'EXCLUIR') return;
 
     setError('');
@@ -474,6 +479,16 @@ function OrgDetail({ organization }) {
     } finally {
       setSaving(false);
     }
+  }
+
+  async function archiveEmpenho(item) {
+    const archived = archivedIds.has(item.empenho_id);
+    if (!window.confirm(archived ? 'Restaurar o empenho ' + item.number + ' para os ativos?' : 'Arquivar o empenho ' + item.number + '? O histórico será preservado.')) return;
+    setSaving(true); setError(''); setFormMessage('');
+    const { error: updateError } = await supabase.from('empenhos').update({ archived_at: archived ? null : new Date().toISOString() }).eq('id', item.empenho_id).eq('organization_id', organization.id);
+    if (updateError) setError('Falha ao ' + (archived ? 'restaurar' : 'arquivar') + ': ' + updateError.message + '. Aplique a migração de arquivamento no Supabase.');
+    else { setFormMessage(archived ? 'Empenho restaurado aos ativos.' : 'Empenho arquivado; histórico preservado.'); setArchiveTab(archived ? 'ativos' : 'arquivo'); await loadData(); }
+    setSaving(false);
   }
 
   async function cancelEmpenho(item) {
@@ -539,6 +554,7 @@ function OrgDetail({ organization }) {
   const totalBalance = balances.reduce((sum, item) => sum + Number(item.operational_balance || 0), 0);
   const totalPaid = balances.reduce((sum, item) => sum + Number(item.confirmed_paid_amount || 0), 0);
   const totalPending = balances.reduce((sum, item) => sum + Number(item.pending_amount || 0), 0);
+  const visibleBalances = balances.filter(item => archiveTab === 'arquivo' ? archivedIds.has(item.empenho_id) : !archivedIds.has(item.empenho_id));
   const filteredEntries = entries.filter(entry => !monthFilter || entry.request_date?.slice(0,7) === monthFilter);
 
   return <>
@@ -553,13 +569,14 @@ function OrgDetail({ organization }) {
       <Stat icon={<CheckCircle2 size={19}/>} label="Pagamentos confirmados" value={money(totalPaid)} note={money(totalPending) + ' em solicitações pendentes'}/>
     </div>
     <section className="section-card detail-section">
-      <div className="section-head"><div><h3>Empenhos deste órgão</h3><p>Cada cartão reúne os dados, itens e lançamentos de um único empenho.</p></div><button className="secondary-btn" onClick={loadData}><RefreshCw size={15}/> Atualizar</button></div>
-      {busy ? <div className="inline-loading"><div className="spinner"/> Carregando empenhos…</div> : balances.length ? <div className="empenho-card-list">{balances.map(item => {
+      <div className="section-head"><div><h3>{archiveTab === 'arquivo' ? 'Arquivo de empenhos' : 'Empenhos ativos'}</h3><p>{archiveTab === 'arquivo' ? 'Consulta dos registros arquivados.' : 'Empenhos em operação neste órgão.'}</p></div><button className="secondary-btn" onClick={loadData}><RefreshCw size={15}/> Atualizar</button></div>
+      <div className="history-tools" style={{marginBottom: '18px'}}><button className={archiveTab === 'ativos' ? 'primary-btn' : 'secondary-btn'} onClick={() => setArchiveTab('ativos')}>Ativos ({balances.filter(x => !archivedIds.has(x.empenho_id)).length})</button><button className={archiveTab === 'arquivo' ? 'primary-btn' : 'secondary-btn'} onClick={() => setArchiveTab('arquivo')}>Arquivo ({balances.filter(x => archivedIds.has(x.empenho_id)).length})</button></div>
+      {busy ? <div className="inline-loading"><div className="spinner"/> Carregando empenhos…</div> : visibleBalances.length ? <div className="empenho-card-list">{visibleBalances.map(item => {
         const relatedItems = itemBalances.filter(i => i.empenho_id === item.empenho_id);
         const relatedEntries = filteredEntries.filter(entry => entry.empenho_id === item.empenho_id);
         return <article className="empenho-panel" key={item.empenho_id}>
           <header className="empenho-panel-head"><div><span className="eyebrow">EMPENHO</span><h3>{item.number}</h3><p>{item.description}</p><span className={'status-pill ' + (item.is_active === false ? 'cancelled' : 'paid')}>{item.is_active === false ? 'Inativo' : 'Ativo'}</span></div>
-          <div className="empenho-panel-actions"><button className="secondary-btn compact" onClick={()=>openEntryForm(item)} disabled={item.is_active === false}>Novo lançamento</button><button className="secondary-btn compact" onClick={()=>editEmpenho(item)}>Alterar</button><button className="secondary-btn compact" onClick={()=>cancelEmpenho(item)} disabled={!item.is_active}>Inativar</button><button className="danger-btn compact" onClick={()=>deleteEmpenho(item)}>Excluir</button></div></header>
+          <div className="empenho-panel-actions">{archiveTab === 'arquivo' ? <button className="secondary-btn compact" onClick={()=>archiveEmpenho(item)}>Restaurar aos ativos</button> : <><button className="secondary-btn compact" onClick={()=>openEntryForm(item)} disabled={item.is_active === false}>Novo lançamento</button><button className="secondary-btn compact" onClick={()=>editEmpenho(item)}>Alterar</button><button className="secondary-btn compact" onClick={()=>cancelEmpenho(item)} disabled={!item.is_active}>Inativar</button><button className="secondary-btn compact" onClick={()=>archiveEmpenho(item)}>Arquivar</button><button className="danger-btn compact" onClick={()=>deleteEmpenho(item)}>Excluir</button></>}</div></header>
           <div className="empenho-metrics"><div><span>Valor total</span><strong>{money(item.original_amount)}</strong></div><div><span>Valor utilizado</span><strong>{money(item.used_balance)}</strong></div><div><span>Saldo disponível</span><strong>{money(item.operational_balance)}</strong></div><div><span>Pendências</span><strong>{item.pending_count || 0}</strong></div></div>
           <section className="empenho-subsection"><div className="subsection-heading"><h4>Itens deste empenho</h4><span>{relatedItems.length} item(ns)</span></div>
           {relatedItems.length ? <div className="empenho-item-list">{relatedItems.map(i=><div className="empenho-item-card" key={i.empenho_item_id}><div><strong>{i.item_number ? 'Item ' + i.item_number + ' · ' : ''}{i.item_description}</strong><p>{i.purchase_code ? 'Código de compra ' + i.purchase_code + ' · ' : ''}{i.quantity != null ? 'Quantidade: ' + new Intl.NumberFormat('pt-BR',{maximumFractionDigits:4}).format(Number(i.quantity)) + (i.unit ? ' ' + i.unit : '') + ' · ' : ''}{i.unit_price != null ? 'Unitário: ' + money(i.unit_price) + ' · ' : ''}Desconto: {i.discount_percentage}%</p></div><div className="item-values"><span>Total <strong>{money(i.original_amount)}</strong></span><span>Utilizado <strong>{money(i.used_balance)}</strong></span><span>Saldo <strong>{money(i.operational_balance)}</strong></span><button className="secondary-btn compact" onClick={()=>openEntryForm(item,i.empenho_item_id)} disabled={item.is_active === false}>Lançar neste item</button></div></div>)}</div> : <p className="muted">Nenhum item vinculado a este empenho.</p>}
@@ -568,7 +585,7 @@ function OrgDetail({ organization }) {
           {relatedEntries.length ? <div className="empenho-entry-list">{relatedEntries.map(entry=><div className="empenho-entry-card" key={entry.id}><div className="entry-main"><strong>{entry.description}</strong><p>{new Date(entry.request_date+'T12:00:00').toLocaleDateString('pt-BR')} · {entry.entry_type==='pedido'?'Pedido':'Pagamento'} · {entry.entry_type==='pedido'?'Pedido: '+money(entry.order_amount)+' · NF: '+money(entry.invoice_amount):'Valor: '+money(entry.paid_amount)}</p><small>{relatedItems.find(i=>i.empenho_item_id===entry.empenho_item_id)?.item_description || 'Item não identificado'}{entry.entry_type==='pedido'?' · Acréscimo '+entry.markup_percentage+'%':''}</small>{(entry.payment_attachments||[]).map(a=><button key={a.id} className="file-link" onClick={()=>openAttachment(a)}><Paperclip size={13}/>{a.original_filename}</button>)}</div><div className="entry-actions"><span className={'status-pill '+(entry.status==='cancelado'?'cancelled':entry.status==='pago'?'paid':'pending')}>{entry.status==='cancelado'?'Cancelado':entry.status==='pago'?'Pago':entry.entry_type==='pedido'?'Pedido registrado':'Solicitado'}</span>{entry.status !== 'cancelado' ? <><button className="secondary-btn compact" onClick={()=>editEntry(entry)}>Alterar</button><button className="secondary-btn compact" onClick={()=>cancelEntry(entry)}>Cancelar</button></> : <small className="muted">Registro preservado</small>}</div></div>)}</div> : <p className="muted">Nenhum lançamento vinculado a este empenho.</p>}
           </section>
         </article>;
-      })}</div> : <div className="empty-state"><div className="empty-icon"><FileText size={24}/></div><h3>Nenhum empenho cadastrado</h3><p>Cadastre o primeiro empenho para começar a registrar solicitações e acompanhar o saldo deste órgão.</p><button className="primary-btn" onClick={()=>setShowEmpenhoForm(true)}><Plus size={16}/> Cadastrar empenho</button></div>}
+      })}</div>  : <div className="empty-state"><div className="empty-icon"><FileText size={24}/></div><h3>{archiveTab === 'arquivo' ? 'Nenhum empenho arquivado' : 'Nenhum empenho ativo'}</h3><p>{archiveTab === 'arquivo' ? 'Os empenhos arquivados aparecerão aqui para consulta.' : 'Cadastre um empenho ou restaure um registro do arquivo.'}</p>{archiveTab === 'ativos' && <button className="primary-btn" onClick={()=>setShowEmpenhoForm(true)}><Plus size={16}/> Cadastrar empenho</button>}</div>}
     </section>
     <section className="section-card detail-section"><div className="section-head"><div><h3>Filtro dos lançamentos</h3><p>O filtro de mês se aplica aos lançamentos dentro de cada empenho.</p></div><div className="history-tools"><label className="month-filter">Mês de referência<input type="month" value={monthFilter} onChange={e=>setMonthFilter(e.target.value)}/></label><span className="count-pill">{filteredEntries.length} registros</span></div></div></section>
     {showEmpenhoForm && <div className="modal-backdrop" role="presentation" onMouseDown={e=>{if(e.target===e.currentTarget)setShowEmpenhoForm(false);}}><form className="modal-card wide-modal" onSubmit={createEmpenho}><div className="modal-head"><div><span className="eyebrow">NOVO REGISTRO</span><h2>Cadastrar empenho</h2><p>O empenho e sua regra inicial serão salvos juntos.</p></div><button type="button" className="icon-btn" onClick={()=>setShowEmpenhoForm(false)}><X size={19}/></button></div><div className="form-grid"><label>Número do empenho<input value={number} onChange={e=>setNumber(e.target.value)} required maxLength={80} placeholder="Ex.: 2026NE000123"/></label><label>Data do empenho<input type="date" value={issuedOn} onChange={e=>setIssuedOn(e.target.value)}/></label></div><label>Descrição geral do empenho<input value={description} onChange={e=>setDescription(e.target.value)} required maxLength={250} placeholder="Descrição ou objeto geral do empenho"/></label><div className="section-head"><div><h3>Itens do empenho</h3><p>O total é calculado pela soma dos valores dos itens.</p></div><button type="button" className="secondary-btn" onClick={()=>setItemDrafts(v=>[...v,{description:'',amount:'',discount:'0',itemNumber:'',purchaseCode:'',quantity:'',unit:'',unitPrice:''}])}><Plus size={15}/> Adicionar item</button></div>{itemDrafts.map((item,index)=><div className="rule-panel" key={index}><div className="form-grid"><label>Nº do item no empenho<input value={item.itemNumber} onChange={e=>setItemDrafts(v=>v.map((x,i)=>i===index?{...x,itemNumber:e.target.value}:x))} placeholder="Ex.: 001" /></label><label>Código do item de compra<input value={item.purchaseCode} onChange={e=>setItemDrafts(v=>v.map((x,i)=>i===index?{...x,purchaseCode:e.target.value}:x))} placeholder="Ex.: 00012" /></label></div><label>Descrição oficial do item<input value={item.description} onChange={e=>setItemDrafts(v=>v.map((x,i)=>i===index?{...x,description:e.target.value}:x))} required placeholder={`Item ${index+1} — descrição oficial`}/></label><div className="form-grid"><label>Quantidade<input type="number" min="0.0001" step="0.0001" value={item.quantity} onChange={e=>setItemDrafts(v=>v.map((x,i)=>i===index?{...x,quantity:e.target.value}:x))} placeholder="Ex.: 59392" /></label><label>Unidade<input value={item.unit} onChange={e=>setItemDrafts(v=>v.map((x,i)=>i===index?{...x,unit:e.target.value}:x))} placeholder="Ex.: unidade, conjunto" /></label></div><div className="form-grid"><label>Valor unitário (R$)<input type="number" min="0" step="0.0001" value={item.unitPrice} onChange={e=>setItemDrafts(v=>v.map((x,i)=>i===index?{...x,unitPrice:e.target.value}:x))} placeholder="Ex.: 0.1425" /></label><label>Valor total do item (R$)<input type="number" min="0.01" step="0.01" value={item.amount} onChange={e=>setItemDrafts(v=>v.map((x,i)=>i===index?{...x,amount:e.target.value}:x))} required placeholder="10000.00"/></label></div><label>Desconto do item (%)<input type="number" min="0" max="100" step="0.01" value={item.discount} onChange={e=>setItemDrafts(v=>v.map((x,i)=>i===index?{...x,discount:e.target.value}:x))} required/></label>{itemDrafts.length>1&&<button type="button" className="text-button" onClick={()=>setItemDrafts(v=>v.filter((_,i)=>i!==index))}>Remover item</button>}</div>)}<div className="rule-summary"><span>Valor total do empenho</span><strong>{money(itemDrafts.reduce((sum,i)=>sum+Number(i.amount||0),0))}</strong><small>O saldo total será a soma dos saldos dos itens, descontando o percentual informado em cada item.</small></div>{formError&&<div className="alert error">{formError}</div>}<div className="modal-actions"><button type="button" className="secondary-btn" onClick={()=>setShowEmpenhoForm(false)}>Cancelar</button><button className="primary-btn" disabled={saving}>{saving?'Salvando…':'Salvar empenho'}</button></div></form></div>}
