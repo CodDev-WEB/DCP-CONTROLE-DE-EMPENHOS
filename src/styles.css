@@ -101,3 +101,22 @@
 .empenho-expanded-content{display:grid;gap:18px;padding-top:8px}
 .empenho-entry-card .entry-actions{max-width:260px}
 @media(max-width:900px){.empenho-panel.is-compact .empenho-panel-head{align-items:flex-start}.empenho-panel-actions{width:100%}.empenho-details-toggle span{margin-left:auto}.empenho-panel.is-compact .empenho-metrics{grid-template-columns:repeat(2,minmax(0,1fr))}}
+
+
+/* Identidade visual oficial DCP Comércio */
+:root{--brand-primary:#102b46;--brand-primary-hover:#173c5d;--brand-accent:#1d9368;--brand-accent-soft:#e6f5ef;--brand-canvas:#f4f7fa;--brand-border:#e3eaf0;--brand-text:#172b3d;--brand-muted:#718096}
+.sidebar-brand{gap:12px;align-items:center;padding-bottom:29px}
+.dcp-logo{display:block;object-fit:contain;object-position:left center;max-width:100%;height:auto}
+.dcp-logo-sidebar{width:62px;height:44px;flex:0 0 62px;object-fit:contain;object-position:center;background:#fff;border-radius:9px;padding:4px 5px}
+.sidebar-brand-copy{min-width:0}
+.sidebar-brand-copy strong{font-size:18px;letter-spacing:.04em}
+.sidebar-brand-copy span{font-size:8px;line-height:1.5;letter-spacing:.08em}
+.login-logo-wrap{display:flex;align-items:center;justify-content:flex-start;width:min(100%,360px);min-height:82px;margin-bottom:22px}
+.dcp-logo-login{width:min(100%,340px);max-height:100px;object-position:left center;object-fit:contain}
+.login-brand .eyebrow{display:block;margin-bottom:12px}
+.setup-card .dcp-logo-login{margin-bottom:20px}
+.primary-btn{background:var(--brand-primary);border-color:var(--brand-primary)}
+.primary-btn:hover{background:var(--brand-primary-hover)}
+.nav-item.selected{box-shadow:inset 3px 0 var(--brand-accent)}
+.brand-mark{background:var(--brand-accent-soft);color:var(--brand-accent)}
+@media(max-width:600px){.dcp-logo-sidebar{width:54px;flex-basis:54px;height:40px}.sidebar-brand-copy span{font-size:7px}.login-logo-wrap{min-height:64px;margin-bottom:16px}.dcp-logo-login{max-height:76px}}
