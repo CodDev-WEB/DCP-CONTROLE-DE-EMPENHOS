@@ -561,8 +561,12 @@ function OrgDetail({ organization }) {
 
   async function deleteEntry(entry) {
     const label = entry.description || (entry.entry_type === 'pedido' ? 'Pedido' : 'Pagamento');
+    if (entry.related_order_id) {
+      setError('Este pagamento está vinculado a outro pedido. Exclua primeiro o pagamento dependente.');
+      return;
+    }
     const confirmation = window.prompt(
-      'Excluir definitivamente o lançamento "' + label + '"? Esta ação não pode ser desfeita.\n\nDigite EXCLUIR para confirmar.'
+      'Excluir definitivamente o lançamento "' + label + '"? Os anexos vinculados também serão removidos.\n\nDigite EXCLUIR para confirmar.'
     );
     if (confirmation === null) return;
     if (confirmation.trim() !== 'EXCLUIR') {
@@ -571,17 +575,23 @@ function OrgDetail({ organization }) {
     }
     setSaving(true); setError(''); setFormMessage('');
     try {
-      const { error: deleteError } = await supabase
-        .from('payment_entries')
-        .delete()
-        .eq('id', entry.id)
-        .eq('organization_id', organization.id);
-      if (deleteError) throw new Error('Não foi possível excluir o lançamento: ' + deleteError.message);
+      // Remove stored files first; never leave inaccessible files behind.
+      const attachments = entry.payment_attachments || [];
+      const paths = attachments.map(file => file.storage_path).filter(Boolean);
+      if (paths.length) {
+        const { error: storageError } = await supabase.storage.from('dcp-payment-attachments').remove(paths);
+        if (storageError) throw new Error('Não foi possível remover os anexos do armazenamento: ' + storageError.message + '. O lançamento foi mantido.');
+      }
+      const { data: result, error: deleteError } = await supabase.rpc('delete_payment_entry_safely', {
+        p_payment_entry_id: entry.id
+      });
+      if (deleteError) throw new Error('O Supabase recusou a exclusão do lançamento: ' + deleteError.message + '. Confira se a migração 202610270004_delete_payment_entry_safely.sql foi aplicada.');
+      if (result?.success !== true) throw new Error(result?.message || 'O banco não confirmou a exclusão do lançamento.');
       const { data: remaining, error: verifyError } = await supabase
         .from('payment_entries').select('id').eq('id', entry.id).maybeSingle();
       if (verifyError) throw new Error('Não foi possível confirmar a exclusão: ' + verifyError.message);
-      if (remaining) throw new Error('O banco ainda retorna este lançamento. Verifique as permissões RLS do Supabase.');
-      setFormMessage('Lançamento excluído definitivamente.');
+      if (remaining) throw new Error('O lançamento ainda existe no banco. Verifique as permissões e a migração SQL.');
+      setFormMessage('Lançamento excluído. A auditoria da operação foi preservada.');
       await loadData();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Falha ao excluir o lançamento.');
